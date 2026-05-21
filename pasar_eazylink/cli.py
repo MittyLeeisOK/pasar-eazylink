@@ -33,7 +33,7 @@ from .utils import (
 )
 
 
-PINK = "\033[95m"
+PINK = "\033[92m"
 RESET = "\033[0m"
 
 
@@ -134,13 +134,19 @@ def run_uninstall(cfg: dict):
     remove_path(Path("/usr/local/bin/pasar"), "命令入口")
     remove_path(Path("/opt/pasar-eazylink"), "安装目录")
 
-    extra = input("是否同时删除配置与映射文件？输入 yes 继续: ").strip().lower()
-    if extra == "yes":
-        remove_path(Path("/etc/pasar-easylink.env"), "主配置文件")
-        remove_path(Path("/etc/sub-notify.env"), "通知配置文件")
-        map_path = Path(cfg.get("SUB_MAP_FILE", ""))
-        if str(map_path).strip():
-            remove_path(map_path, "映射文件")
+    while True:
+        extra = input("是否同时删除配置与映射文件？输入 yes 继续，输入 no 跳过: ").strip().lower()
+        if extra == "yes":
+            remove_path(Path("/etc/pasar-easylink.env"), "主配置文件")
+            remove_path(Path("/etc/sub-notify.env"), "通知配置文件")
+            map_path = Path(cfg.get("SUB_MAP_FILE", ""))
+            if str(map_path).strip():
+                remove_path(map_path, "映射文件")
+            break
+        if extra == "no":
+            print("已跳过删除配置与映射文件。")
+            break
+        print("输入无效，请输入 yes 或 no。")
 
     print("卸载流程已结束。")
 
