@@ -33,7 +33,7 @@ from .utils import (
 )
 
 
-PINK = "\033[95m"
+GREEN = "\033[92m"
 RESET = "\033[0m"
 
 
@@ -48,9 +48,9 @@ def color_enabled() -> bool:
     return True
 
 
-def pink(text: str) -> str:
+def green(text: str) -> str:
     if color_enabled():
-        return f"{PINK}{text}{RESET}"
+        return f"{GREEN}{text}{RESET}"
     return text
 
 
@@ -66,16 +66,16 @@ def menu_block(title: str, items: list[tuple[str, str]]):
     width = max(len(row) for row in rows) + 2
     line = "=" * width
     print()
-    print(pink(line))
-    print(pink(title))
-    print(pink(line))
+    print(green(line))
+    print(green(title))
+    print(green(line))
     for key, label in items:
-        print(pink(f"{key:<2} {label}"))
-    print(pink(line))
+        print(green(f"{key:<2} {label}"))
+    print(green(line))
 
 
 def prompt_menu() -> str:
-    return normalize_menu_opt(input(pink("请输入选项: ")))
+    return normalize_menu_opt(input(green("请输入选项: ")))
 
 
 def run_upgrade():
@@ -134,13 +134,19 @@ def run_uninstall(cfg: dict):
     remove_path(Path("/usr/local/bin/pasar"), "命令入口")
     remove_path(Path("/opt/pasar-eazylink"), "安装目录")
 
-    extra = input("是否同时删除配置与映射文件？输入 yes 继续: ").strip().lower()
-    if extra == "yes":
-        remove_path(Path("/etc/pasar-easylink.env"), "主配置文件")
-        remove_path(Path("/etc/sub-notify.env"), "通知配置文件")
-        map_path = Path(cfg.get("SUB_MAP_FILE", ""))
-        if str(map_path).strip():
-            remove_path(map_path, "映射文件")
+    while True:
+        extra = input("是否同时删除配置与映射文件？输入 yes 继续，输入 no 跳过: ").strip().lower()
+        if extra == "yes":
+            remove_path(Path("/etc/pasar-easylink.env"), "主配置文件")
+            remove_path(Path("/etc/sub-notify.env"), "通知配置文件")
+            map_path = Path(cfg.get("SUB_MAP_FILE", ""))
+            if str(map_path).strip():
+                remove_path(map_path, "映射文件")
+            break
+        if extra == "no":
+            print("已跳过删除配置与映射文件。")
+            break
+        print("输入无效，请输入 yes 或 no。")
 
     print("卸载流程已结束。")
 
