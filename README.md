@@ -20,3 +20,4 @@ bash install.sh
 ```
 
 安装过程中会引导填写 `/etc/pasar-easylink.env` 配置参数；若需修改，可再次运行 `pasar easylink` -> 设置。
+若安装完成后提示 `pasar: command not found`，可先执行 `/usr/local/bin/pasar easylink`，并检查 `/usr/local/bin` 是否在 `PATH` 中（必要时执行 `hash -r`）。

@@ -98,8 +98,8 @@ def update_eazy_link(cfg: dict):
 
     selected = None
     if matches:
-        value = input("选择序号覆盖；输入 0 新建一个短链接: ").strip()
-        if value.isdigit() and 1 <= int(value) <= len(matches):
+        value = input("选择序号覆盖；输入 0 或回车新建短链接: ").strip()
+        if value and value.isdigit() and 1 <= int(value) <= len(matches):
             selected = matches[int(value) - 1]
 
     if selected:
@@ -141,7 +141,7 @@ def delete_eazy_link(cfg: dict):
     show_mapping(cfg, username)
     matches = show_shortlinks(cfg, username)
 
-    confirm = input("确认删除该用户的所有 mapping？输入 yes 继续: ").strip()
+    confirm = input("确认删除该用户的所有 mapping？输入 yes 继续: ").strip().lower()
     if confirm != "yes":
         print("已取消。")
         return
@@ -149,7 +149,7 @@ def delete_eazy_link(cfg: dict):
     delete_user(cfg, username)
 
     if matches:
-        confirm2 = input("是否同时删除上面匹配到的所有短链接？输入 yes 继续: ").strip()
+        confirm2 = input("是否同时删除上面匹配到的所有短链接？输入 yes 继续: ").strip().lower()
         if confirm2 == "yes":
             for item in matches:
                 status, data, raw = shlink_delete(cfg, item_code(item))
@@ -166,13 +166,15 @@ def delete_eazy_link(cfg: dict):
 def view_menu(cfg: dict):
     while True:
         print()
-        print("=== 查看 ===")
-        print("1 查看 user mapping")
+        print("=== 数据查看 ===")
+        print("1 查看 Mapping")
         print("2 查看短链接列表")
-        print("3 同时查看 mapping 和短链接")
+        print("3 同时查看 Mapping 和短链接")
         print("0 返回")
 
-        opt = input("请选择: ").strip()
+        opt = input("请选择（0/b/back 返回）: ").strip().lower()
+        if opt in {"b", "back"}:
+            opt = "0"
 
         if opt == "1":
             query = input("关键词过滤，留空查看全部: ").strip()
@@ -277,7 +279,7 @@ def manage_shortlink_delete(cfg: dict):
     print(f"准备删除：{short_url}")
     print(f"目标：{long_url}")
 
-    confirm = input("确认删除这个短链接？输入 yes 继续: ").strip()
+    confirm = input("确认删除这个短链接？输入 yes 继续: ").strip().lower()
     if confirm != "yes":
         print("已取消。")
         return
@@ -293,13 +295,15 @@ def manage_shortlink_delete(cfg: dict):
 def shortlink_manage_menu(cfg: dict):
     while True:
         print()
-        print("=== 单独短链接管理 ===")
+        print("=== 短链接管理 ===")
         print("1 修改某个短链接")
         print("2 删除某个短链接")
         print("3 查看短链接列表")
         print("0 返回")
 
-        opt = input("请选择: ").strip()
+        opt = input("请选择（0/b/back 返回）: ").strip().lower()
+        if opt in {"b", "back"}:
+            opt = "0"
 
         if opt == "1":
             manage_shortlink_modify(cfg)
@@ -336,7 +340,9 @@ def settings_menu(cfg: dict):
         print("14 测试 TG 通知")
         print("0 返回")
 
-        opt = input("请选择: ").strip()
+        opt = input("请选择（0/b/back 返回）: ").strip().lower()
+        if opt in {"b", "back"}:
+            opt = "0"
 
         if opt == "1":
             value = input(f"Pasar Panel 地址 [当前: {cfg['PASAR_PANEL_HOST']}]: ").strip()
@@ -424,11 +430,13 @@ def main_menu():
         print("2 更新 Eazy Link")
         print("3 删除 Eazy Link")
         print("4 查看 Mapping / 短链接")
-        print("5 单独短链接管理")
+        print("5 短链接管理")
         print("6 设置")
         print("0 退出")
 
-        opt = input("请选择: ").strip()
+        opt = input("请选择（0/q 退出）: ").strip().lower()
+        if opt in {"q", "quit", "exit"}:
+            opt = "0"
 
         if opt == "1":
             create_eazy_link(cfg)

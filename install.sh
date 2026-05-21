@@ -160,4 +160,12 @@ fi
 python3 -m py_compile "$INSTALL_DIR/pasar_eazylink/"*.py
 python3 -m py_compile /usr/local/bin/pasar
 
-echo "Installed. Run: pasar easylink"
+if command -v pasar >/dev/null 2>&1; then
+  hash -r 2>/dev/null || true
+  echo "Installed. Run: pasar easylink"
+else
+  echo "Installed, but command 'pasar' is not in PATH."
+  echo "Try running:"
+  echo "  /usr/local/bin/pasar easylink"
+  echo "Or ensure /usr/local/bin is in your PATH, then run: hash -r"
+fi
