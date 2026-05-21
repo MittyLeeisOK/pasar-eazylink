@@ -452,12 +452,15 @@ def settings_menu(cfg: dict):
             print_header("当前配置详情")
             print(f"{colored('Pasar Panel 地址：', 'CYAN')}{cfg['PASAR_PANEL_HOST']}")
             print(f"{colored('Pasar Panel 端口：', 'CYAN')}{cfg['PASAR_PANEL_PORT']}")
+            # Sensitive tokens are masked using mask() function - shows only first 6 and last 4 chars
             print(f"{colored('Pasar Access Token：', 'CYAN')}{mask(cfg['PASAR_API_KEY'])}")
             print(f"{colored('Shlink API Base：', 'CYAN')}{cfg['SHLINK_API_BASE']}")
+            # Sensitive API key is masked for security
             print(f"{colored('Shlink API Key：', 'CYAN')}{mask(cfg['SHLINK_API_KEY'])}")
             print(f"{colored('短链域名：', 'CYAN')}{cfg['SHORT_DOMAIN']}")
             print(f"{colored('订阅基础地址：', 'CYAN')}{cfg['SUB_BASE_URL']}")
             print(f"{colored('用户映射表：', 'CYAN')}{cfg['SUB_MAP_FILE']}")
+            # Sensitive tokens are masked for security
             print(f"{colored('Telegram Bot Token：', 'CYAN')}{mask(cfg['TG_BOT_TOKEN'])}")
             print(f"{colored('Telegram Chat ID：', 'CYAN')}{mask(cfg['TG_CHAT_ID'])}")
             print(f"{colored('Telegram Thread ID：', 'CYAN')}{mask(cfg['TG_THREAD_ID'])}")
