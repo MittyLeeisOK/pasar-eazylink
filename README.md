@@ -16,7 +16,12 @@ A lightweight SSH menu tool for managing PasarGuard subscription links, Shlink s
 ## Install
 
 ```bash
-git clone https://github.com/MittyLeeisOK/pasar-eazylink.git && cd pasar-eazylink && sudo bash install.sh
+tmp_dir="$(mktemp -d /tmp/pasar-eazylink.XXXXXX)" \
+  && git clone https://github.com/MittyLeeisOK/pasar-eazylink.git "$tmp_dir" \
+  && cd "$tmp_dir" \
+  && sudo bash install.sh \
+  && cd / \
+  && rm -rf "$tmp_dir"
 ```
 
 安装过程中会引导填写 `/etc/pasar-easylink.env` 配置参数；若需修改，可再次运行 `pasar easylink` -> 设置。
