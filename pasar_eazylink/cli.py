@@ -99,7 +99,9 @@ def update_eazy_link(cfg: dict):
     selected = None
     if matches:
         value = input("选择序号覆盖；输入 0 或回车新建短链接: ").strip()
-        if value.isdigit() and 1 <= int(value) <= len(matches):
+        if not value or value == "0":
+            selected = None
+        elif value.isdigit() and 1 <= int(value) <= len(matches):
             selected = matches[int(value) - 1]
 
     if selected:
@@ -172,7 +174,7 @@ def view_menu(cfg: dict):
         print("3 同时查看 Mapping 和短链接")
         print("0 返回")
 
-        opt = input("请选择（0 返回，b 返回）: ").strip().lower()
+        opt = input("请选择（0/b 返回）: ").strip().lower()
         if opt in {"b", "back"}:
             opt = "0"
 
@@ -301,7 +303,7 @@ def shortlink_manage_menu(cfg: dict):
         print("3 查看短链接列表")
         print("0 返回")
 
-        opt = input("请选择（0 返回，b 返回）: ").strip().lower()
+        opt = input("请选择（0/b 返回）: ").strip().lower()
         if opt in {"b", "back"}:
             opt = "0"
 
@@ -340,7 +342,7 @@ def settings_menu(cfg: dict):
         print("14 测试 TG 通知")
         print("0 返回")
 
-        opt = input("请选择（0 返回，b 返回）: ").strip().lower()
+        opt = input("请选择（0/b 返回）: ").strip().lower()
         if opt in {"b", "back"}:
             opt = "0"
 
@@ -434,7 +436,7 @@ def main_menu():
         print("6 设置")
         print("0 退出")
 
-        opt = input("请选择（0 退出，q 退出）: ").strip().lower()
+        opt = input("请选择（0/q 退出）: ").strip().lower()
         if opt in {"q", "quit", "exit"}:
             opt = "0"
 
