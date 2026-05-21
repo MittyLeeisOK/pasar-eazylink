@@ -12,7 +12,7 @@ def headers(cfg: dict) -> dict:
 def ensure_key(cfg: dict) -> bool:
     if cfg.get("SHLINK_API_KEY"):
         return True
-    print("Shlink API Key 为空，请先到 设置 -> 日本 Shlink API Key。")
+    print("Shlink API Key 为空，请先到 设置 -> Shlink API Key。")
     return False
 
 
