@@ -1,5 +1,9 @@
 import json
+import os
+import shutil
+import subprocess
 import sys
+from pathlib import Path
 
 from . import __version__
 from .config import load_config, save_config
@@ -27,6 +31,118 @@ from .utils import (
     validate_slug,
     validate_username,
 )
+
+
+PINK = "\033[95m"
+RESET = "\033[0m"
+
+
+def color_enabled() -> bool:
+    if not sys.stdout.isatty():
+        return False
+    if os.getenv("NO_COLOR") is not None:
+        return False
+    term = os.getenv("TERM", "").strip().lower()
+    if term in {"", "dumb"}:
+        return False
+    return True
+
+
+def pink(text: str) -> str:
+    if color_enabled():
+        return f"{PINK}{text}{RESET}"
+    return text
+
+
+def normalize_menu_opt(raw: str) -> str:
+    opt = raw.strip().lower()
+    if opt in {"b", "back", "返回", "q", "quit", "exit", "退出"}:
+        return "0"
+    return opt
+
+
+def menu_block(title: str, items: list[tuple[str, str]]):
+    rows = [title, *[f"{k} {v}" for k, v in items]]
+    width = max(len(row) for row in rows) + 2
+    line = "=" * width
+    print()
+    print(pink(line))
+    print(pink(title))
+    print(pink(line))
+    for key, label in items:
+        print(pink(f"{key:<2} {label}"))
+    print(pink(line))
+
+
+def prompt_menu() -> str:
+    return normalize_menu_opt(input(pink("请输入选项: ")))
+
+
+def run_upgrade():
+    print()
+    confirm = input("确认升级？输入 yes 继续: ").strip().lower()
+    if confirm != "yes":
+        print("已取消。")
+        return
+
+    script_candidates = [
+        Path("/opt/pasar-eazylink/install.sh"),
+        Path(__file__).resolve().parent.parent / "install.sh",
+    ]
+    script = next((p for p in script_candidates if p.exists()), None)
+    if not script:
+        print("未找到 install.sh，无法自动升级。")
+        print("请手动执行安装脚本完成升级。")
+        return
+
+    print(f"开始执行升级脚本：{script}")
+    try:
+        result = subprocess.run(["bash", str(script)], check=False)
+    except Exception as exc:
+        print(f"升级执行失败：{exc}")
+        return
+
+    if result.returncode == 0:
+        print("升级完成。")
+    else:
+        print(f"升级失败，退出码：{result.returncode}")
+        print("请确认当前用户权限后重试。")
+
+
+def remove_path(path: Path, label: str):
+    if not path.exists() and not path.is_symlink():
+        print(f"{label} 不存在，跳过。")
+        return
+    try:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        else:
+            shutil.rmtree(path)
+        print(f"{label} 已删除：{path}")
+    except Exception as exc:
+        print(f"{label} 删除失败：{exc}")
+
+
+def run_uninstall(cfg: dict):
+    print()
+    print("卸载将删除程序文件。")
+    confirm = input("输入 uninstall 确认卸载: ").strip().lower()
+    if confirm != "uninstall":
+        print("已取消。")
+        return
+
+    remove_path(Path("/usr/local/bin/pasar"), "命令入口")
+    remove_path(Path("/opt/pasar-eazylink"), "安装目录")
+
+    extra = input("是否同时删除配置与映射文件？输入 yes 继续: ").strip().lower()
+    if extra == "yes":
+        remove_path(Path("/etc/pasar-easylink.env"), "主配置文件")
+        remove_path(Path("/etc/sub-notify.env"), "通知配置文件")
+        map_path = Path(cfg.get("SUB_MAP_FILE", ""))
+        if str(map_path).strip():
+            remove_path(map_path, "映射文件")
+
+    print("卸载流程已结束。")
 
 
 def create_eazy_link(cfg: dict):
@@ -164,17 +280,15 @@ def delete_eazy_link(cfg: dict):
 
 
 def view_menu(cfg: dict):
+    items = [
+        ("1", "查看 Mapping"),
+        ("2", "查看短链接列表"),
+        ("3", "同时查看 Mapping 和短链接"),
+        ("0", "返回"),
+    ]
     while True:
-        print()
-        print("=== 数据查看 ===")
-        print("1 查看 Mapping")
-        print("2 查看短链接列表")
-        print("3 同时查看 Mapping 和短链接")
-        print("0 返回")
-
-        opt = input("请选择（0/b/back 返回）: ").strip().lower()
-        if opt in {"b", "back"}:
-            opt = "0"
+        menu_block("数据查看", items)
+        opt = prompt_menu()
 
         if opt == "1":
             query = input("关键词过滤，留空查看全部: ").strip()
@@ -189,7 +303,7 @@ def view_menu(cfg: dict):
         elif opt == "0":
             return
         else:
-            print("无效选项。")
+            print("无效选项，请重试。")
 
 
 def manage_shortlink_modify(cfg: dict):
@@ -293,17 +407,15 @@ def manage_shortlink_delete(cfg: dict):
 
 
 def shortlink_manage_menu(cfg: dict):
+    items = [
+        ("1", "修改某个短链接"),
+        ("2", "删除某个短链接"),
+        ("3", "查看短链接列表"),
+        ("0", "返回"),
+    ]
     while True:
-        print()
-        print("=== 短链接管理 ===")
-        print("1 修改某个短链接")
-        print("2 删除某个短链接")
-        print("3 查看短链接列表")
-        print("0 返回")
-
-        opt = input("请选择（0/b/back 返回）: ").strip().lower()
-        if opt in {"b", "back"}:
-            opt = "0"
+        menu_block("短链接管理", items)
+        opt = prompt_menu()
 
         if opt == "1":
             manage_shortlink_modify(cfg)
@@ -315,34 +427,34 @@ def shortlink_manage_menu(cfg: dict):
         elif opt == "0":
             return
         else:
-            print("无效选项。")
+            print("无效选项，请重试。")
 
 
 def settings_menu(cfg: dict):
+    items = [
+        ("1", "Pasar Panel 地址"),
+        ("2", "Pasar Panel 端口"),
+        ("3", "Pasar 登录/更新 Access Token"),
+        ("4", "Shlink API Key"),
+        ("5", "短链域名"),
+        ("6", "订阅基础地址"),
+        ("7", "Mapping 表路径"),
+        ("8", "TG Bot Token"),
+        ("9", "TG Chat ID"),
+        ("10", "TG Thread ID"),
+        ("11", "查看当前配置"),
+        ("12", "测试 Pasar API"),
+        ("13", "测试 Shlink API"),
+        ("14", "测试 TG 通知"),
+        ("15", "升级程序"),
+        ("16", "卸载程序"),
+        ("0", "返回"),
+    ]
     while True:
         cfg = load_config()
 
-        print()
-        print("=== Eazy Link 设置 ===")
-        print("1 Pasar Panel 地址")
-        print("2 Pasar Panel 端口")
-        print("3 Pasar 登录/更新 Access Token")
-        print("4 日本 Shlink API Key")
-        print("5 短链域名")
-        print("6 订阅基础地址")
-        print("7 Mapping 表路径")
-        print("8 TG Bot Token")
-        print("9 TG Chat ID")
-        print("10 TG Thread ID")
-        print("11 查看当前配置")
-        print("12 测试 Pasar API")
-        print("13 测试 Shlink API")
-        print("14 测试 TG 通知")
-        print("0 返回")
-
-        opt = input("请选择（0/b/back 返回）: ").strip().lower()
-        if opt in {"b", "back"}:
-            opt = "0"
+        menu_block("Eazy Link 设置", items)
+        opt = prompt_menu()
 
         if opt == "1":
             value = input(f"Pasar Panel 地址 [当前: {cfg['PASAR_PANEL_HOST']}]: ").strip()
@@ -357,7 +469,7 @@ def settings_menu(cfg: dict):
         elif opt == "3":
             pasar_login(cfg)
         elif opt == "4":
-            value = input("日本 Shlink API Key: ").strip()
+            value = input("Shlink API Key: ").strip()
             if value:
                 cfg["SHLINK_API_KEY"] = value
                 save_config(cfg)
@@ -414,29 +526,31 @@ def settings_menu(cfg: dict):
             test_shlink(cfg)
         elif opt == "14":
             test_tg(cfg)
+        elif opt == "15":
+            run_upgrade()
+        elif opt == "16":
+            run_uninstall(cfg)
         elif opt == "0":
             return
         else:
-            print("无效选项。")
+            print("无效选项，请重试。")
 
 
 def main_menu():
+    items = [
+        ("1", "新增 Eazy Link"),
+        ("2", "更新 Eazy Link"),
+        ("3", "删除 Eazy Link"),
+        ("4", "查看 Mapping / 短链接"),
+        ("5", "短链接管理"),
+        ("6", "设置"),
+        ("0", "退出"),
+    ]
     while True:
         cfg = load_config()
 
-        print()
-        print(f"=== Pasar Eazy Link v{__version__} ===")
-        print("1 新增 Eazy Link")
-        print("2 更新 Eazy Link")
-        print("3 删除 Eazy Link")
-        print("4 查看 Mapping / 短链接")
-        print("5 短链接管理")
-        print("6 设置")
-        print("0 退出")
-
-        opt = input("请选择（0/q 退出）: ").strip().lower()
-        if opt in {"q", "quit", "exit"}:
-            opt = "0"
+        menu_block(f"Pasar Eazy Link v{__version__}", items)
+        opt = prompt_menu()
 
         if opt == "1":
             create_eazy_link(cfg)
@@ -453,7 +567,8 @@ def main_menu():
         elif opt == "0":
             return
         else:
-            print("无效选项。")
+            print("输入无效，已退出。")
+            return
 
 
 def main():
