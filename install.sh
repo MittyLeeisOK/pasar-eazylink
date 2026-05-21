@@ -132,7 +132,12 @@ guide_config() {
 install -d "$INSTALL_DIR"
 install -d "$INSTALL_DIR/pasar_eazylink"
 
-cp -a "$PROJECT_DIR/pasar_eazylink/"*.py "$INSTALL_DIR/pasar_eazylink/"
+if [[ "$PROJECT_DIR" == "$INSTALL_DIR" ]]; then
+  echo "检测到安装目录与源码目录一致，将直接使用当前目录源码。"
+  echo "如需升级，请先在 ${PROJECT_DIR} 执行 git pull 后再运行安装脚本。"
+else
+  cp -a "$PROJECT_DIR/pasar_eazylink/"*.py "$INSTALL_DIR/pasar_eazylink/"
+fi
 install -m 755 "$PROJECT_DIR/bin/pasar" /usr/local/bin/pasar
 
 created_config=""
@@ -159,12 +164,13 @@ fi
 
 python3 -m py_compile "$INSTALL_DIR/pasar_eazylink/"*.py
 python3 -m py_compile /usr/local/bin/pasar
+echo "安装检查通过：脚本已编译。"
 
 if command -v pasar >/dev/null 2>&1; then
   hash -r 2>/dev/null || true
-  echo "Installed. Run: pasar easylink"
+  echo "安装成功。可直接运行：pasar easylink"
 else
-  echo "Installed, but command 'pasar' is not in PATH."
+  echo "安装成功，但命令 'pasar' 当前不在 PATH。"
   echo "Try running:"
   echo "  /usr/local/bin/pasar easylink"
   echo "Or ensure /usr/local/bin is in your PATH, then run: hash -r"
