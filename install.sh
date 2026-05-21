@@ -132,7 +132,11 @@ guide_config() {
 install -d "$INSTALL_DIR"
 install -d "$INSTALL_DIR/pasar_eazylink"
 
-cp -a "$PROJECT_DIR/pasar_eazylink/"*.py "$INSTALL_DIR/pasar_eazylink/"
+if [ "$PROJECT_DIR" = "$INSTALL_DIR" ]; then
+  echo "检测到安装目录与源码目录一致，跳过复制源码文件。"
+else
+  cp -a "$PROJECT_DIR/pasar_eazylink/"*.py "$INSTALL_DIR/pasar_eazylink/"
+fi
 install -m 755 "$PROJECT_DIR/bin/pasar" /usr/local/bin/pasar
 
 created_config=""
