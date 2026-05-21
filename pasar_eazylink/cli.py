@@ -33,7 +33,7 @@ from .utils import (
 )
 
 
-PINK = "\033[92m"
+GREEN = "\033[92m"
 RESET = "\033[0m"
 
 
@@ -48,9 +48,9 @@ def color_enabled() -> bool:
     return True
 
 
-def pink(text: str) -> str:
+def green(text: str) -> str:
     if color_enabled():
-        return f"{PINK}{text}{RESET}"
+        return f"{GREEN}{text}{RESET}"
     return text
 
 
@@ -66,16 +66,16 @@ def menu_block(title: str, items: list[tuple[str, str]]):
     width = max(len(row) for row in rows) + 2
     line = "=" * width
     print()
-    print(pink(line))
-    print(pink(title))
-    print(pink(line))
+    print(green(line))
+    print(green(title))
+    print(green(line))
     for key, label in items:
-        print(pink(f"{key:<2} {label}"))
-    print(pink(line))
+        print(green(f"{key:<2} {label}"))
+    print(green(line))
 
 
 def prompt_menu() -> str:
-    return normalize_menu_opt(input(pink("请输入选项: ")))
+    return normalize_menu_opt(input(green("请输入选项: ")))
 
 
 def run_upgrade():
