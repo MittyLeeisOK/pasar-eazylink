@@ -99,9 +99,7 @@ def update_eazy_link(cfg: dict):
     selected = None
     if matches:
         value = input("选择序号覆盖；输入 0 或回车新建短链接: ").strip()
-        if value == "":
-            selected = None
-        elif value.isdigit() and 1 <= int(value) <= len(matches):
+        if value and value.isdigit() and 1 <= int(value) <= len(matches):
             selected = matches[int(value) - 1]
 
     if selected:
