@@ -444,7 +444,7 @@ def main_menu():
         print(pink("6 设置"))
         print(pink("0 退出"))
 
-        opt = input(pink("请选择（0/q 退出）: ")).strip().lower()
+        opt = input(pink("请选择（0/q 退出，其他输入也会退出）: ")).strip().lower()
         if opt in {"q", "quit", "exit"}:
             opt = "0"
 
