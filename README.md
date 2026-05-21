@@ -17,3 +17,6 @@ A lightweight SSH menu tool for managing PasarGuard subscription links, Shlink s
 
 ```bash
 bash install.sh
+```
+
+安装过程中会引导填写 `/etc/pasar-easylink.env` 配置参数；若需修改，可再次运行 `pasar easylink` -> 设置。
