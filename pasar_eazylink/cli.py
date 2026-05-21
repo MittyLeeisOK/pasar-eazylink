@@ -28,10 +28,48 @@ from .utils import (
     validate_username,
 )
 
+# ANSI color codes for better CLI aesthetics
+COLORS = {
+    'RESET': '\033[0m',
+    'BOLD': '\033[1m',
+    'CYAN': '\033[96m',
+    'GREEN': '\033[92m',
+    'YELLOW': '\033[93m',
+    'BLUE': '\033[94m',
+    'MAGENTA': '\033[95m',
+    'RED': '\033[91m',
+}
+
+def colored(text, color):
+    """Return colored text using ANSI codes"""
+    return f"{COLORS.get(color, '')}{text}{COLORS['RESET']}"
+
+def print_header(title):
+    """Print a formatted header"""
+    print()
+    border = "═" * (len(title) + 4)
+    print(colored(border, 'CYAN'))
+    print(colored(f"  {title}  ", 'CYAN'))
+    print(colored(border, 'CYAN'))
+
+def print_section(title):
+    """Print a formatted section title"""
+    print()
+    print(colored(f"╭─ {title}", 'BLUE'))
+
+def print_option(num, title, description=""):
+    """Print a formatted menu option"""
+    if description:
+        print(f"  {colored(num, 'YELLOW')} {title}")
+        print(f"     {description}")
+    else:
+        print(f"  {colored(num, 'YELLOW')} {title}")
+
 
 def create_eazy_link(cfg: dict):
+    print_header("快速新增用户并生成短链接")
+    print("此功能将快速为您创建一个新用户、生成订阅链接并自动创建短链接")
     print()
-    print("=== 新增 Eazy Link ===")
 
     templates = list_templates(cfg)
     if templates is None:
@@ -65,18 +103,19 @@ def create_eazy_link(cfg: dict):
         return
 
     print()
-    print("=== 新增完成 ===")
-    print(f"用户：{username}")
-    print(f"短链接：{cfg['SHORT_DOMAIN'].rstrip('/')}/{slug}")
-    print(f"长链接：{long_url}")
-    print(f"token：{short_token(token)}")
+    print_header("创建完成")
+    print(f"{colored('用户：', 'GREEN')}{username}")
+    print(f"{colored('短链接：', 'GREEN')}{cfg['SHORT_DOMAIN'].rstrip('/')}/{slug}")
+    print(f"{colored('长链接：', 'GREEN')}{long_url}")
+    print(f"{colored('Token：', 'GREEN')}{short_token(token)}")
 
     show_mapping(cfg, username)
 
 
 def update_eazy_link(cfg: dict):
+    print_header("更新订阅链接")
+    print("此功能将更新用户的订阅链接，保留原有的短链接映射")
     print()
-    print("=== 更新 Eazy Link ===")
 
     username = input_nonempty("用户名: ")
     if not validate_username(username):
@@ -120,18 +159,19 @@ def update_eazy_link(cfg: dict):
         short_url = f"{cfg['SHORT_DOMAIN'].rstrip('/')}/{slug}"
 
     print()
-    print("=== 更新完成 ===")
-    print(f"用户：{username}")
-    print(f"短链接：{short_url}")
-    print(f"长链接：{long_url}")
-    print(f"token：{short_token(token)}")
+    print_header("更新完成")
+    print(f"{colored('用户：', 'GREEN')}{username}")
+    print(f"{colored('短链接：', 'GREEN')}{short_url}")
+    print(f"{colored('长链接：', 'GREEN')}{long_url}")
+    print(f"{colored('Token：', 'GREEN')}{short_token(token)}")
 
     show_mapping(cfg, username)
 
 
 def delete_eazy_link(cfg: dict):
+    print_header("删除用户及其短链接")
+    print("此功能将删除用户的映射关系和对应的短链接")
     print()
-    print("=== 删除 Eazy Link ===")
 
     username = input_nonempty("用户名: ")
     if not validate_username(username):
@@ -165,14 +205,14 @@ def delete_eazy_link(cfg: dict):
 
 def view_menu(cfg: dict):
     while True:
-        print()
-        print("=== 查看 ===")
-        print("1 查看 user mapping")
-        print("2 查看短链接列表")
-        print("3 同时查看 mapping 和短链接")
-        print("0 返回")
+        print_header("查看用户映射和短链接")
 
-        opt = input("请选择: ").strip()
+        print_option("1", "查看用户映射", "查看所有用户及其订阅链接的映射关系")
+        print_option("2", "查看短链接列表", "查看所有已创建的短链接列表")
+        print_option("3", "同时查看映射和短链接", "一次性查看所有用户映射和短链接信息")
+        print_option("0", "返回主菜单")
+
+        opt = input("\n请选择: ").strip()
 
         if opt == "1":
             query = input("关键词过滤，留空查看全部: ").strip()
@@ -187,7 +227,7 @@ def view_menu(cfg: dict):
         elif opt == "0":
             return
         else:
-            print("无效选项。")
+            print(colored("无效选项。", 'RED'))
 
 
 def manage_shortlink_modify(cfg: dict):
@@ -199,11 +239,12 @@ def manage_shortlink_modify(cfg: dict):
     old_long = item_long_url(item)
 
     print()
-    print(f"当前 shortCode：{old_code}")
-    print(f"当前短链接：{item_short_url(item, cfg)}")
-    print(f"当前目标：{old_long}")
+    print_header("修改短链接")
+    print(f"{colored('当前 shortCode：', 'CYAN')}{old_code}")
+    print(f"{colored('当前短链接：', 'CYAN')}{item_short_url(item, cfg)}")
+    print(f"{colored('当前目标：', 'CYAN')}{old_long}")
 
-    new_slug = input("新的 shortCode/slug，留空不修改: ").strip()
+    new_slug = input("\n新的 shortCode/slug，留空不修改: ").strip()
     if new_slug:
         if not validate_slug(new_slug):
             print("slug 格式无效。")
@@ -259,9 +300,9 @@ def manage_shortlink_modify(cfg: dict):
                 print("用户名格式无效，已跳过 mapping 写入。")
 
     print()
-    print("=== 修改完成 ===")
-    print(f"短链接：{final_short}")
-    print(f"目标：{new_long}")
+    print_header("修改完成")
+    print(f"{colored('短链接：', 'GREEN')}{final_short}")
+    print(f"{colored('目标：', 'GREEN')}{new_long}")
 
 
 def manage_shortlink_delete(cfg: dict):
@@ -274,17 +315,18 @@ def manage_shortlink_delete(cfg: dict):
     long_url = item_long_url(item)
 
     print()
-    print(f"准备删除：{short_url}")
-    print(f"目标：{long_url}")
+    print_header("删除短链接")
+    print(f"{colored('准备删除：', 'YELLOW')}{short_url}")
+    print(f"{colored('目标：', 'YELLOW')}{long_url}")
 
-    confirm = input("确认删除这个短链接？输入 yes 继续: ").strip()
+    confirm = input("\n确认删除这个短链接？输入 yes 继续: ").strip()
     if confirm != "yes":
         print("已取消。")
         return
 
     status, data, raw = shlink_delete(cfg, code)
     if status in (200, 202, 204, 404):
-        print("短链接已删除。")
+        print(colored("✓ 短链接已删除。", 'GREEN'))
     else:
         print(f"删除失败，HTTP {status}")
         print(raw)
@@ -292,14 +334,14 @@ def manage_shortlink_delete(cfg: dict):
 
 def shortlink_manage_menu(cfg: dict):
     while True:
-        print()
-        print("=== 单独短链接管理 ===")
-        print("1 修改某个短链接")
-        print("2 删除某个短链接")
-        print("3 查看短链接列表")
-        print("0 返回")
+        print_header("短链接管理")
 
-        opt = input("请选择: ").strip()
+        print_option("1", "修改短链接", "修改已创建的短链接的目标或代码")
+        print_option("2", "删除短链接", "删除某个短链接")
+        print_option("3", "查看短链接列表", "查看所有短链接")
+        print_option("0", "返回主菜单")
+
+        opt = input("\n请选择: ").strip()
 
         if opt == "1":
             manage_shortlink_modify(cfg)
@@ -311,97 +353,114 @@ def shortlink_manage_menu(cfg: dict):
         elif opt == "0":
             return
         else:
-            print("无效选项。")
+            print(colored("无效选项。", 'RED'))
 
 
 def settings_menu(cfg: dict):
     while True:
         cfg = load_config()
 
-        print()
-        print("=== Eazy Link 设置 ===")
-        print("1 Pasar Panel 地址")
-        print("2 Pasar Panel 端口")
-        print("3 Pasar 登录/更新 Access Token")
-        print("4 日本 Shlink API Key")
-        print("5 短链域名")
-        print("6 订阅基础地址")
-        print("7 Mapping 表路径")
-        print("8 TG Bot Token")
-        print("9 TG Chat ID")
-        print("10 TG Thread ID")
-        print("11 查看当前配置")
-        print("12 测试 Pasar API")
-        print("13 测试 Shlink API")
-        print("14 测试 TG 通知")
-        print("0 返回")
+        print_header("系统设置")
 
-        opt = input("请选择: ").strip()
+        print_section("API 配置")
+        print_option("1", "Pasar Panel 地址", "配置 PasarGuard 面板地址")
+        print_option("2", "Pasar Panel 端口", "配置 PasarGuard 面板端口")
+        print_option("3", "Pasar Access Token", "登录或更新 PasarGuard 访问令牌")
+
+        print_section("短链接服务配置")
+        print_option("4", "Shlink API Key", "配置 Shlink API 密钥")
+        print_option("5", "短链域名", "配置短链接使用的域名")
+
+        print_section("订阅服务配置")
+        print_option("6", "订阅基础地址", "配置订阅地址基础URL")
+        print_option("7", "用户映射表路径", "配置用户映射表文件位置")
+
+        print_section("通知服务配置")
+        print_option("8", "Telegram Bot Token", "配置 Telegram 机器人令牌")
+        print_option("9", "Telegram Chat ID", "配置 Telegram 聊天ID")
+        print_option("10", "Telegram Thread ID", "配置 Telegram 话题ID（可选）")
+
+        print_section("工具和信息")
+        print_option("11", "查看当前配置", "显示所有已配置的参数")
+        print_option("12", "测试 Pasar API", "测试与 PasarGuard 的连接")
+        print_option("13", "测试 Shlink API", "测试与 Shlink 的连接")
+        print_option("14", "测试 Telegram 通知", "测试 Telegram 通知功能")
+        print_option("0", "返回主菜单")
+
+        opt = input("\n请选择: ").strip()
 
         if opt == "1":
             value = input(f"Pasar Panel 地址 [当前: {cfg['PASAR_PANEL_HOST']}]: ").strip()
             if value:
                 cfg["PASAR_PANEL_HOST"] = value.rstrip("/")
                 save_config(cfg)
+                print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "2":
             value = input(f"Pasar Panel 端口 [当前: {cfg['PASAR_PANEL_PORT']}]: ").strip()
             if value:
                 cfg["PASAR_PANEL_PORT"] = value
                 save_config(cfg)
+                print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "3":
             pasar_login(cfg)
         elif opt == "4":
-            value = input("日本 Shlink API Key: ").strip()
+            value = input("Shlink API Key: ").strip()
             if value:
                 cfg["SHLINK_API_KEY"] = value
                 save_config(cfg)
+                print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "5":
             value = input(f"短链域名 [当前: {cfg['SHORT_DOMAIN']}]: ").strip()
             if value:
                 cfg["SHORT_DOMAIN"] = value.rstrip("/")
                 cfg["SHLINK_API_BASE"] = f"{value.rstrip('/')}/rest/v3"
                 save_config(cfg)
+                print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "6":
             value = input(f"订阅基础地址 [当前: {cfg['SUB_BASE_URL']}]: ").strip()
             if value:
                 cfg["SUB_BASE_URL"] = value.rstrip("/")
                 save_config(cfg)
+                print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "7":
-            value = input(f"Mapping 表路径 [当前: {cfg['SUB_MAP_FILE']}]: ").strip()
+            value = input(f"用户映射表路径 [当前: {cfg['SUB_MAP_FILE']}]: ").strip()
             if value:
                 cfg["SUB_MAP_FILE"] = value
                 save_config(cfg)
+                print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "8":
-            value = input("TG Bot Token: ").strip()
+            value = input("Telegram Bot Token: ").strip()
             if value:
                 cfg["TG_BOT_TOKEN"] = value
                 save_config(cfg)
                 sync_tg_env(cfg)
+                print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "9":
-            value = input("TG Chat ID: ").strip()
+            value = input("Telegram Chat ID: ").strip()
             if value:
                 cfg["TG_CHAT_ID"] = value
                 save_config(cfg)
                 sync_tg_env(cfg)
+                print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "10":
-            value = input("TG Thread ID，可留空: ").strip()
+            value = input("Telegram Thread ID，可留空: ").strip()
             cfg["TG_THREAD_ID"] = value
             save_config(cfg)
             sync_tg_env(cfg)
+            print(colored("✓ 配置已保存", 'GREEN'))
         elif opt == "11":
-            print()
-            print("=== 当前配置 ===")
-            print(f"Pasar Panel 地址：{cfg['PASAR_PANEL_HOST']}")
-            print(f"Pasar Panel 端口：{cfg['PASAR_PANEL_PORT']}")
-            print(f"Pasar Access Token：{mask(cfg['PASAR_API_KEY'])}")
-            print(f"Shlink API Base：{cfg['SHLINK_API_BASE']}")
-            print(f"Shlink API Key：{mask(cfg['SHLINK_API_KEY'])}")
-            print(f"短链域名：{cfg['SHORT_DOMAIN']}")
-            print(f"订阅基础地址：{cfg['SUB_BASE_URL']}")
-            print(f"Mapping 表：{cfg['SUB_MAP_FILE']}")
-            print(f"TG Bot Token：{mask(cfg['TG_BOT_TOKEN'])}")
-            print(f"TG Chat ID：{mask(cfg['TG_CHAT_ID'])}")
-            print(f"TG Thread ID：{mask(cfg['TG_THREAD_ID'])}")
+            print_header("当前配置详情")
+            print(f"{colored('Pasar Panel 地址：', 'CYAN')}{cfg['PASAR_PANEL_HOST']}")
+            print(f"{colored('Pasar Panel 端口：', 'CYAN')}{cfg['PASAR_PANEL_PORT']}")
+            print(f"{colored('Pasar Access Token：', 'CYAN')}{mask(cfg['PASAR_API_KEY'])}")
+            print(f"{colored('Shlink API Base：', 'CYAN')}{cfg['SHLINK_API_BASE']}")
+            print(f"{colored('Shlink API Key：', 'CYAN')}{mask(cfg['SHLINK_API_KEY'])}")
+            print(f"{colored('短链域名：', 'CYAN')}{cfg['SHORT_DOMAIN']}")
+            print(f"{colored('订阅基础地址：', 'CYAN')}{cfg['SUB_BASE_URL']}")
+            print(f"{colored('用户映射表：', 'CYAN')}{cfg['SUB_MAP_FILE']}")
+            print(f"{colored('Telegram Bot Token：', 'CYAN')}{mask(cfg['TG_BOT_TOKEN'])}")
+            print(f"{colored('Telegram Chat ID：', 'CYAN')}{mask(cfg['TG_CHAT_ID'])}")
+            print(f"{colored('Telegram Thread ID：', 'CYAN')}{mask(cfg['TG_THREAD_ID'])}")
         elif opt == "12":
             test_pasar(cfg)
         elif opt == "13":
@@ -411,24 +470,27 @@ def settings_menu(cfg: dict):
         elif opt == "0":
             return
         else:
-            print("无效选项。")
+            print(colored("无效选项。", 'RED'))
 
 
 def main_menu():
     while True:
         cfg = load_config()
 
-        print()
-        print(f"=== Pasar Eazy Link v{__version__} ===")
-        print("1 新增 Eazy Link")
-        print("2 更新 Eazy Link")
-        print("3 删除 Eazy Link")
-        print("4 查看 Mapping / 短链接")
-        print("5 单独短链接管理")
-        print("6 设置")
-        print("0 退出")
+        print_header(f"Pasar Eazy Link v{__version__}")
 
-        opt = input("请选择: ").strip()
+        print_section("用户和链接管理")
+        print_option("1", "快速新增用户并生成短链接", "创建新用户、生成订阅链接和短链接")
+        print_option("2", "更新订阅链接", "为已有用户更新订阅链接")
+        print_option("3", "删除用户及其短链接", "删除用户映射和对应的短链接")
+
+        print_section("查看和管理")
+        print_option("4", "查看用户映射和短链接", "查看用户映射关系和已创建的短链接")
+        print_option("5", "短链接管理", "修改或删除单个短链接")
+        print_option("6", "系统设置", "配置API、域名、通知等参数")
+        print_option("0", "退出程序")
+
+        opt = input("\n请选择: ").strip()
 
         if opt == "1":
             create_eazy_link(cfg)
@@ -443,9 +505,11 @@ def main_menu():
         elif opt == "6":
             settings_menu(cfg)
         elif opt == "0":
+            print()
+            print(colored("感谢使用 Pasar Eazy Link，再见！", 'GREEN'))
             return
         else:
-            print("无效选项。")
+            print(colored("无效选项。", 'RED'))
 
 
 def main():
