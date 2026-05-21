@@ -326,8 +326,8 @@ def settings_menu(cfg: dict):
         print("=== Eazy Link 设置 ===")
         print("1 Pasar Panel 地址")
         print("2 Pasar Panel 端口")
-        print("3 Pasar 登录并刷新 Access Token")
-        print("4 Shlink API Key")
+        print("3 Pasar 登录/更新 Access Token")
+        print("4 日本 Shlink API Key")
         print("5 短链域名")
         print("6 订阅基础地址")
         print("7 Mapping 表路径")
@@ -357,7 +357,7 @@ def settings_menu(cfg: dict):
         elif opt == "3":
             pasar_login(cfg)
         elif opt == "4":
-            value = input("Shlink API Key: ").strip()
+            value = input("日本 Shlink API Key: ").strip()
             if value:
                 cfg["SHLINK_API_KEY"] = value
                 save_config(cfg)
