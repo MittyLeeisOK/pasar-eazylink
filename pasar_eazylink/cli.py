@@ -29,6 +29,16 @@ from .utils import (
 )
 
 
+PINK = "\033[95m"
+RESET = "\033[0m"
+
+
+def pink(text: str) -> str:
+    if sys.stdout.isatty():
+        return f"{PINK}{text}{RESET}"
+    return text
+
+
 def create_eazy_link(cfg: dict):
     print()
     print("=== 新增 Eazy Link ===")
@@ -166,13 +176,13 @@ def delete_eazy_link(cfg: dict):
 def view_menu(cfg: dict):
     while True:
         print()
-        print("=== 数据查看 ===")
-        print("1 查看 Mapping")
-        print("2 查看短链接列表")
-        print("3 同时查看 Mapping 和短链接")
-        print("0 返回")
+        print(pink("=== 数据查看 ==="))
+        print(pink("1 查看 Mapping"))
+        print(pink("2 查看短链接列表"))
+        print(pink("3 同时查看 Mapping 和短链接"))
+        print(pink("0 返回"))
 
-        opt = input("请选择（0/b/back 返回）: ").strip().lower()
+        opt = input(pink("请选择（0/b/back 返回）: ")).strip().lower()
         if opt in {"b", "back"}:
             opt = "0"
 
@@ -295,13 +305,13 @@ def manage_shortlink_delete(cfg: dict):
 def shortlink_manage_menu(cfg: dict):
     while True:
         print()
-        print("=== 短链接管理 ===")
-        print("1 修改某个短链接")
-        print("2 删除某个短链接")
-        print("3 查看短链接列表")
-        print("0 返回")
+        print(pink("=== 短链接管理 ==="))
+        print(pink("1 修改某个短链接"))
+        print(pink("2 删除某个短链接"))
+        print(pink("3 查看短链接列表"))
+        print(pink("0 返回"))
 
-        opt = input("请选择（0/b/back 返回）: ").strip().lower()
+        opt = input(pink("请选择（0/b/back 返回）: ")).strip().lower()
         if opt in {"b", "back"}:
             opt = "0"
 
@@ -323,24 +333,24 @@ def settings_menu(cfg: dict):
         cfg = load_config()
 
         print()
-        print("=== Eazy Link 设置 ===")
-        print("1 Pasar Panel 地址")
-        print("2 Pasar Panel 端口")
-        print("3 Pasar 登录/更新 Access Token")
-        print("4 日本 Shlink API Key")
-        print("5 短链域名")
-        print("6 订阅基础地址")
-        print("7 Mapping 表路径")
-        print("8 TG Bot Token")
-        print("9 TG Chat ID")
-        print("10 TG Thread ID")
-        print("11 查看当前配置")
-        print("12 测试 Pasar API")
-        print("13 测试 Shlink API")
-        print("14 测试 TG 通知")
-        print("0 返回")
+        print(pink("=== Eazy Link 设置 ==="))
+        print(pink("1 Pasar Panel 地址"))
+        print(pink("2 Pasar Panel 端口"))
+        print(pink("3 Pasar 登录/更新 Access Token"))
+        print(pink("4 日本 Shlink API Key"))
+        print(pink("5 短链域名"))
+        print(pink("6 订阅基础地址"))
+        print(pink("7 Mapping 表路径"))
+        print(pink("8 TG Bot Token"))
+        print(pink("9 TG Chat ID"))
+        print(pink("10 TG Thread ID"))
+        print(pink("11 查看当前配置"))
+        print(pink("12 测试 Pasar API"))
+        print(pink("13 测试 Shlink API"))
+        print(pink("14 测试 TG 通知"))
+        print(pink("0 返回"))
 
-        opt = input("请选择（0/b/back 返回）: ").strip().lower()
+        opt = input(pink("请选择（0/b/back 返回）: ")).strip().lower()
         if opt in {"b", "back"}:
             opt = "0"
 
@@ -425,16 +435,16 @@ def main_menu():
         cfg = load_config()
 
         print()
-        print(f"=== Pasar Eazy Link v{__version__} ===")
-        print("1 新增 Eazy Link")
-        print("2 更新 Eazy Link")
-        print("3 删除 Eazy Link")
-        print("4 查看 Mapping / 短链接")
-        print("5 短链接管理")
-        print("6 设置")
-        print("0 退出")
+        print(pink(f"=== Pasar Eazy Link v{__version__} ==="))
+        print(pink("1 新增 Eazy Link"))
+        print(pink("2 更新 Eazy Link"))
+        print(pink("3 删除 Eazy Link"))
+        print(pink("4 查看 Mapping / 短链接"))
+        print(pink("5 短链接管理"))
+        print(pink("6 设置"))
+        print(pink("0 退出"))
 
-        opt = input("请选择（0/q 退出）: ").strip().lower()
+        opt = input(pink("请选择（0/q 退出）: ")).strip().lower()
         if opt in {"q", "quit", "exit"}:
             opt = "0"
 
@@ -453,7 +463,8 @@ def main_menu():
         elif opt == "0":
             return
         else:
-            print("无效选项。")
+            print("输入无效，已退出。")
+            return
 
 
 def main():
