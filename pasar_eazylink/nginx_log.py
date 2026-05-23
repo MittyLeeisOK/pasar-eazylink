@@ -51,13 +51,11 @@ def find_matching_request(
     allowed_statuses: set[str],
     tail_bytes: int = 2 * 1024 * 1024,
     db_ip: str = "",
-    username: str = "",
 ) -> dict | None:
     db_local = db_created_at.astimezone()
     target_ua = user_agent or ""
     statuses = {s.strip() for s in allowed_statuses if s and s.strip()}
     target_ip = (db_ip or "").strip()
-    target_username = (username or "").strip()
     if not statuses:
         statuses = {"200", "304"}
 
@@ -77,13 +75,8 @@ def find_matching_request(
         if diff > window_seconds:
             continue
 
-        path_no_query = row["path"].split("?", 1)[0].rstrip("/")
-        username_path = f"/sub/{target_username}".rstrip("/")
-        path_user_match = bool(target_username) and path_no_query == username_path
-
         candidates.append(
             (
-                path_user_match,
                 bool(target_ip) and row["remote_addr"] == target_ip,
                 bool(target_ua) and row["user_agent"] == target_ua,
                 -diff,
