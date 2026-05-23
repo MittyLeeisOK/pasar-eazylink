@@ -7,7 +7,7 @@ from .utils import short_token
 
 
 def map_path(cfg: dict) -> Path:
-    return Path(cfg.get("SUB_MAP_FILE") or DEFAULT_MAP_FILE)
+    return Path(cfg.get("SUB_MAP_FILE") or cfg.get("LOG_MONITOR_MAP_FILE") or DEFAULT_MAP_FILE)
 
 
 def read_mapping(cfg: dict) -> list[dict]:
@@ -47,7 +47,7 @@ def backup_mapping(cfg: dict):
 
 
 def add_token(cfg: dict, token: str, username: str):
-    path, backup = backup_mapping(cfg)
+    path, _backup = backup_mapping(cfg)
     rows = read_mapping(cfg)
 
     if any(row["token"] == token for row in rows):
@@ -81,12 +81,32 @@ def delete_user(cfg: dict, username: str):
     print(f"已删除 Mapping 中用户 {username} 的 {removed} 条记录。备份：{backup}")
 
 
+def delete_token(cfg: dict, token: str):
+    path, backup = backup_mapping(cfg)
+    lines = path.read_text(errors="ignore").splitlines()
+
+    kept = []
+    removed = 0
+
+    for line in lines:
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[0] == token:
+            removed += 1
+            continue
+        kept.append(line)
+
+    path.write_text("\n".join(kept) + ("\n" if kept else ""))
+    os.chmod(path, 0o600)
+
+    print(f"已删除 Mapping 中 token {short_token(token)} 的 {removed} 条记录。备份：{backup}")
+
+
 def show_mapping(cfg: dict, query: str = ""):
     rows = read_mapping(cfg)
     q = query.lower().strip()
 
     print()
-    print("=== User Mapping ===")
+    print("=== Mapping ===")
     print("序号\t行号\t用户\ttoken")
 
     n = 0
