@@ -10,16 +10,24 @@
 5. Telegram提醒
 
 ## 安装
+'''
 curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash
+'''
 
 ## 升级
+'''
 curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash -s -- --upgrade
+'''
 
 ## 卸载
+'''
 curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash -s -- --uninstall
+'''
 
 ## 彻底卸载
+'''
 curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash -s -- --purge --yes
+'''
 
 启动菜单：`pasar easylink`
 
