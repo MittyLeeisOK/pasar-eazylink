@@ -7,15 +7,14 @@ OLD_BIN=/usr/local/bin/sub-notify.sh
 OLD_SERVICE=/etc/systemd/system/sub-notify.service
 CONFIG=/etc/pasar-easylink.env
 STATE=/var/lib/pasar-eazylink
-MAP=/etc/sub-map.tsv
 ACTION=install; YES=false
 ENABLE_DB_MONITOR=false; DISABLE_DB_MONITOR=false; INSTALL_DEPS=false
 for a in "$@";do case "$a" in --install)ACTION=install;;--upgrade)ACTION=upgrade;;--uninstall)ACTION=uninstall;;--purge)ACTION=purge;;--yes)YES=true;;--install-deps)INSTALL_DEPS=true;;--enable-db-monitor)ENABLE_DB_MONITOR=true;;--disable-db-monitor)DISABLE_DB_MONITOR=true;;--help)echo "--install --upgrade --uninstall --purge --yes --install-deps --enable-db-monitor --disable-db-monitor --help";exit 0;;*)echo "Unknown: $a";exit 1;; esac;done
 [ "$(id -u)" -eq 0 ] || { echo root required; exit 1; }
-cleanup_old(){ systemctl disable --now sub-notify.service >/dev/null 2>&1 || true; rm -f "$OLD_BIN" "$OLD_SERVICE"; systemctl daemon-reload >/dev/null 2>&1 || true; [ -f "$MAP" ] && echo "旧 mapping 文件 /etc/sub-map.tsv 已不再使用。可手动删除。"; }
+cleanup_old(){ systemctl disable --now sub-notify.service >/dev/null 2>&1 || true; rm -f "$OLD_BIN" "$OLD_SERVICE"; systemctl daemon-reload >/dev/null 2>&1 || true; }
 remove_runtime(){ systemctl disable --now sub-notify-db.service >/dev/null 2>&1 || true; cleanup_old; rm -f "$BIN" "$DB_SERVICE"; rm -rf "$INSTALL_DIR"; systemctl daemon-reload >/dev/null 2>&1 || true; }
-if [ "$ACTION" = uninstall ]; then remove_runtime; echo "已卸载程序，保留 $CONFIG $STATE 和 $MAP(若存在)"; exit 0; fi
-if [ "$ACTION" = purge ]; then [ "$YES" = true ] || { echo "need --yes"; exit 1; }; remove_runtime; rm -f "$CONFIG" "$MAP"; rm -rf "$STATE"; exit 0; fi
+if [ "$ACTION" = uninstall ]; then remove_runtime; echo "已卸载程序，保留 $CONFIG 与 $STATE"; exit 0; fi
+if [ "$ACTION" = purge ]; then [ "$YES" = true ] || { echo "need --yes"; exit 1; }; remove_runtime; rm -f "$CONFIG"; rm -rf "$STATE"; exit 0; fi
 mkdir -p "$INSTALL_DIR" "$STATE"
 cp -a . "$INSTALL_DIR/"
 install -m 755 "$INSTALL_DIR/bin/pasar" "$BIN"
