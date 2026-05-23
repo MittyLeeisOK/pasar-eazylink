@@ -54,10 +54,6 @@ def green(text: str) -> str:
     return text
 
 
-def secret_status(value: str) -> str:
-    return "<empty>" if not str(value or "").strip() else "<configured>"
-
-
 def normalize_menu_opt(raw: str) -> str:
     opt = raw.strip().lower()
     if opt in {"b", "back", "返回", "q", "quit", "exit", "退出"}:
@@ -602,9 +598,7 @@ def settings_menu(cfg: dict):
             print("=== 当前配置 ===")
             print(f"Pasar Panel 地址：{cfg['PASAR_PANEL_HOST']}")
             print(f"Pasar Panel 端口：{cfg['PASAR_PANEL_PORT']}")
-            print(f"Pasar Access Token：{secret_status(cfg['PASAR_API_KEY'])}")
             print(f"Shlink API Base：{cfg['SHLINK_API_BASE']}")
-            print(f"Shlink API Key：{secret_status(cfg['SHLINK_API_KEY'])}")
             print(f"短链域名：{cfg['SHORT_DOMAIN']}")
             print(f"订阅基础地址：{cfg['SUB_BASE_URL']}")
             print(f"Mapping 表：{cfg['SUB_MAP_FILE']}")
