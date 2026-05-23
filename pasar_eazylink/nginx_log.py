@@ -78,7 +78,7 @@ def find_matching_request(
         candidates.append(
             (
                 bool(target_ip) and row["remote_addr"] == target_ip,
-                row["user_agent"] == target_ua,
+                bool(target_ua) and row["user_agent"] == target_ua,
                 -diff,
                 row["method"] == "GET",
                 row["status"] == "200",

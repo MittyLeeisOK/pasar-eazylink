@@ -25,10 +25,29 @@ BATCH_SQL = (
 
 
 def parse_db_time_utc(raw: str) -> datetime | None:
-    try:
-        return datetime.strptime((raw or "").split(".")[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    except Exception:
+    text = (raw or "").strip()
+    if not text:
         return None
+
+    normalized = text.replace("T", " ")
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        pass
+
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(normalized, fmt).replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+
+    return None
 
 
 def format_display_time(raw: str, tz_name: str | None) -> str:
