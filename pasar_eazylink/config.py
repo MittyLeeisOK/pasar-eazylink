@@ -4,7 +4,6 @@ from pathlib import Path
 
 CONFIG_FILE = Path("/etc/pasar-easylink.env")
 TG_ENV = Path("/etc/sub-notify.env")
-DEFAULT_MAP_FILE = "/etc/sub-map.tsv"
 
 DEFAULT_CONFIG = {
     "PASAR_PANEL_HOST": "https://127.0.0.1",
@@ -25,15 +24,7 @@ DEFAULT_CONFIG = {
     "DB_MONITOR_LOOKUP_NGINX_IP": "true",
     "DB_MONITOR_NGINX_LOOKBACK_SECONDS": "600",
     "DB_MONITOR_NGINX_STATUS": "200,304",
-    "LOG_MONITOR_ACCESS_LOG": "/var/log/nginx/access.log",
-    "LOG_MONITOR_MAP_FILE": "/etc/sub-map.tsv",
-    "LOG_MONITOR_STATUS_CODES": "200,304",
-    "LOG_MONITOR_METHODS": "GET",
-    "EAZYLINK_WRITE_LEGACY_MAPPING": "false",
-    # Legacy keys kept for compatibility.
-    "SUB_MAP_FILE": "/etc/sub-map.tsv",
-    "SUB_NOTIFY_POLL_SECONDS": "15",
-    "SUB_NOTIFY_STATE_FILE": "/var/lib/pasar-eazylink/db-monitor.state",
+    "DB_MONITOR_DISPLAY_TZ": "local",
     "SUB_NOTIFY_USER_STATUS": "",
 }
 
@@ -42,7 +33,6 @@ ALIASES = {
     "PASAR_ACCESS_TOKEN": "PASAR_API_KEY",
     "SUB_NOTIFY_STATE_FILE": "DB_MONITOR_STATE_FILE",
     "SUB_NOTIFY_POLL_SECONDS": "DB_MONITOR_POLL_SECONDS",
-    "SUB_MAP_FILE": "LOG_MONITOR_MAP_FILE",
 }
 
 
@@ -73,21 +63,6 @@ def apply_aliases(cfg: dict):
     for old_key, new_key in ALIASES.items():
         if cfg.get(old_key) and not cfg.get(new_key):
             cfg[new_key] = cfg[old_key]
-
-    if cfg.get("NGINX_ACCESS_LOG") and not cfg.get("LOG_MONITOR_ACCESS_LOG"):
-        cfg["LOG_MONITOR_ACCESS_LOG"] = cfg["NGINX_ACCESS_LOG"]
-    if cfg.get("LOG_MONITOR_ACCESS_LOG") and not cfg.get("NGINX_ACCESS_LOG"):
-        cfg["NGINX_ACCESS_LOG"] = cfg["LOG_MONITOR_ACCESS_LOG"]
-
-    if cfg.get("LOG_MONITOR_MAP_FILE") and not cfg.get("SUB_MAP_FILE"):
-        cfg["SUB_MAP_FILE"] = cfg["LOG_MONITOR_MAP_FILE"]
-    if cfg.get("SUB_MAP_FILE") and not cfg.get("LOG_MONITOR_MAP_FILE"):
-        cfg["LOG_MONITOR_MAP_FILE"] = cfg["SUB_MAP_FILE"]
-
-    if cfg.get("DB_MONITOR_POLL_SECONDS") and not cfg.get("SUB_NOTIFY_POLL_SECONDS"):
-        cfg["SUB_NOTIFY_POLL_SECONDS"] = cfg["DB_MONITOR_POLL_SECONDS"]
-    if cfg.get("DB_MONITOR_STATE_FILE") and not cfg.get("SUB_NOTIFY_STATE_FILE"):
-        cfg["SUB_NOTIFY_STATE_FILE"] = cfg["DB_MONITOR_STATE_FILE"]
 
 
 def write_env_file(path: Path, data: dict):

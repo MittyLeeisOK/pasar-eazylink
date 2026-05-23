@@ -12,11 +12,15 @@ def mask(value: str) -> str:
 
 
 def input_nonempty(prompt: str) -> str:
-    while True:
-        value = input(prompt).strip()
-        if value:
-            return value
-        print("不能为空。")
+    value = input(prompt).strip()
+    if not value or value == "0":
+        return ""
+    return value
+
+
+def confirm_yes(prompt: str) -> bool:
+    value = input(f"{prompt} [yes/No]: ").strip().lower()
+    return value == "yes"
 
 
 def validate_username(username: str) -> bool:
@@ -43,6 +47,8 @@ def prompt_slug(username: str, current: str = "") -> str:
 
     while True:
         value = input(f"短链接后缀 slug [默认: {default}]: ").strip()
+        if value == "0":
+            return ""
         slug = value or default
 
         if not validate_slug(slug):
@@ -51,9 +57,8 @@ def prompt_slug(username: str, current: str = "") -> str:
 
         if not slug_has_user_digits(slug, username):
             print(f"建议格式是：{username}+4-6位数字，例如 {suggest_slug(username)}")
-            confirm = input("当前 slug 不符合建议格式，仍然使用？输入 yes 继续: ").strip()
-            if confirm != "yes":
-                continue
+            if not confirm_yes("当前 slug 不符合建议格式，继续使用"):
+                return ""
 
         return slug
 

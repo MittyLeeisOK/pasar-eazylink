@@ -5,11 +5,12 @@ import os
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import load_config
 from .http_client import http_json
+from .nginx_log import find_matching_request
 
 
 def load_state(path: Path) -> int:
@@ -31,12 +32,12 @@ def save_state(path: Path, last_id: int):
     os.chmod(path, 0o600)
 
 
-def parse_seconds(raw: str) -> int:
+def parse_seconds(raw: str, default: int = 15) -> int:
     try:
         value = int((raw or "").strip())
     except Exception:
-        return 15
-    return value if value > 0 else 15
+        return default
+    return value if value > 0 else default
 
 
 def parse_status_filter(raw: str) -> set[str]:
@@ -48,17 +49,45 @@ def parse_status_filter(raw: str) -> set[str]:
     return items
 
 
-def format_time(raw: str) -> str:
+def parse_bool(raw: str, default: bool = False) -> bool:
+    text = str(raw or "").strip().lower()
+    if not text:
+        return default
+    return text in {"1", "true", "yes", "on"}
+
+
+def parse_created_at(raw: str) -> datetime | None:
     raw = (raw or "").strip()
     if not raw:
-        return "<unknown>"
+        return None
 
     for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            return datetime.strptime(raw, fmt).strftime("%F %T")
+            dt = datetime.strptime(raw, fmt)
+            return dt.replace(tzinfo=UTC).astimezone()
         except Exception:
             pass
-    return raw
+
+    try:
+        dt = datetime.fromisoformat(raw)
+    except Exception:
+        return None
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC).astimezone()
+    return dt.astimezone()
+
+
+def format_time(raw: str, display_tz: str) -> str:
+    dt = parse_created_at(raw)
+    if dt is None:
+        return raw.strip() or "<unknown>"
+
+    if str(display_tz or "local").strip().lower() == "utc":
+        dt = dt.astimezone(UTC)
+        return dt.strftime("%F %T UTC")
+
+    return dt.strftime("%F %T %z")
 
 
 def send_tg(cfg: dict, text: str) -> bool:
@@ -138,15 +167,56 @@ def fetch_latest_update(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return conn.execute(sql).fetchone()
 
 
-def build_message(row: sqlite3.Row) -> str:
+def mask_sub_path(path: str) -> str:
+    text = (path or "").strip()
+    if not text.startswith("/sub/"):
+        return text or "<none>"
+
+    token = text[5:]
+    if len(token) <= 14:
+        return f"/sub/{token}"
+    return f"/sub/{token[:8]}...{token[-6:]}"
+
+
+def find_nginx_match(cfg: dict, row: sqlite3.Row) -> dict | None:
+    if not parse_bool(cfg.get("DB_MONITOR_LOOKUP_NGINX_IP", "true"), True):
+        return None
+
+    created_at = parse_created_at(str(row["created_at"] or ""))
+    if created_at is None:
+        return None
+
+    log_path = (cfg.get("NGINX_ACCESS_LOG") or "").strip()
+    lookback = parse_seconds(cfg.get("DB_MONITOR_NGINX_LOOKBACK_SECONDS", "600"), 600)
+    statuses = parse_status_filter(cfg.get("DB_MONITOR_NGINX_STATUS", "200,304"))
+
+    return find_matching_request(
+        log_path=log_path,
+        db_created_at=created_at,
+        user_agent=str(row["user_agent"] or ""),
+        window_seconds=lookback,
+        allowed_statuses=statuses,
+    )
+
+
+def build_message(row: sqlite3.Row, display_tz: str, nginx_match: dict | None = None) -> str:
     username = (row["username"] or f"id={row['user_id']}").strip()
     status = str(row["status"] or "<none>")
-    ip = str(row["ip"] or "<none>")
+    db_ip = str(row["ip"] or "<none>")
+    source_ip = str(nginx_match["remote_addr"] if nginx_match else db_ip)
     hwid = str(row["hwid"] or "<none>")
     user_agent = str(row["user_agent"] or "<none>")
-    created_at = format_time(str(row["created_at"] or ""))
+    created_at = format_time(str(row["created_at"] or ""), display_tz)
     expire = str(row["expire"] or "<none>")
     revoked = str(row["sub_revoked_at"] or "<none>")
+
+    extra = ""
+    if nginx_match:
+        extra = (
+            f"\nNginx路径：<code>{html.escape(mask_sub_path(str(nginx_match.get('path') or '')))}</code>"
+            f"\nNginx状态：{html.escape(str(nginx_match.get('status') or '<none>'))}"
+            f"\n响应大小：{int(nginx_match.get('body_bytes') or 0)} B"
+        )
 
     return (
         "#订阅拉取提醒\n\n"
@@ -154,11 +224,13 @@ def build_message(row: sqlite3.Row) -> str:
         f"用户ID：{row['user_id']}\n"
         f"状态：{html.escape(status)}\n"
         f"时间：{html.escape(created_at)}\n"
-        f"IP：<code>{html.escape(ip)}</code>\n"
+        f"来源IP：<code>{html.escape(source_ip)}</code>\n"
+        f"DB记录IP：<code>{html.escape(db_ip)}</code>\n"
         f"HWID：<code>{html.escape(hwid)}</code>\n"
         f"UA：<code>{html.escape(user_agent)}</code>\n"
         f"到期：{html.escape(expire)}\n"
-        f"撤销时间：{html.escape(revoked)}\n"
+        f"撤销时间：{html.escape(revoked)}"
+        f"{extra}\n"
         f"记录ID：{row['id']}"
     )
 
@@ -178,6 +250,7 @@ def run_once(cfg: dict, db_path: str, state_path: Path, status_filter: set[str])
             return True
 
         current_id = last_id
+        display_tz = cfg.get("DB_MONITOR_DISPLAY_TZ", "local")
         for row in rows:
             status = str(row["status"] or "")
             if status_filter and status not in status_filter:
@@ -185,7 +258,8 @@ def run_once(cfg: dict, db_path: str, state_path: Path, status_filter: set[str])
                 save_state(state_path, current_id)
                 continue
 
-            text = build_message(row)
+            nginx_match = find_nginx_match(cfg, row)
+            text = build_message(row, display_tz, nginx_match=nginx_match)
             if not send_tg(cfg, text):
                 return False
 
@@ -206,13 +280,14 @@ def load_runtime_config() -> tuple[dict, str, Path, int, set[str]]:
     return cfg, db_path, state_path, poll_seconds, status_filter
 
 
-def latest_message(db_path: str) -> str | None:
+def latest_message(cfg: dict, db_path: str) -> str | None:
     conn = open_db_ro(db_path)
     try:
         row = fetch_latest_update(conn)
         if row is None:
             return None
-        return build_message(row)
+        nginx_match = find_nginx_match(cfg, row)
+        return build_message(row, cfg.get("DB_MONITOR_DISPLAY_TZ", "local"), nginx_match=nginx_match)
     finally:
         conn.close()
 
@@ -220,7 +295,7 @@ def latest_message(db_path: str) -> str | None:
 def run_test_mode(send: bool) -> int:
     cfg, db_path, _state_path, _poll_seconds, _status_filter = load_runtime_config()
     try:
-        text = latest_message(db_path)
+        text = latest_message(cfg, db_path)
     except FileNotFoundError as exc:
         print(str(exc))
         return 1

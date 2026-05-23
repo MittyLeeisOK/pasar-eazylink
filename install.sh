@@ -4,9 +4,9 @@ set -euo pipefail
 REPO_URL="https://github.com/MittyLeeisOK/pasar-eazylink.git"
 INSTALL_DIR="/opt/pasar-eazylink"
 BIN_PASAR="/usr/local/bin/pasar"
-BIN_LOG_MONITOR="/usr/local/bin/sub-notify.sh"
 DB_SERVICE_FILE="/etc/systemd/system/sub-notify-db.service"
-LOG_SERVICE_FILE="/etc/systemd/system/sub-notify.service"
+OLD_BIN_SUB_NOTIFY="/usr/local/bin/sub-notify.sh"
+OLD_SERVICE_FILE="/etc/systemd/system/sub-notify.service"
 CONFIG_FILE="/etc/pasar-easylink.env"
 LEGACY_ENV_FILE="/etc/sub-notify.env"
 MAPPING_FILE="/etc/sub-map.tsv"
@@ -16,31 +16,24 @@ ACTION="install"
 YES="false"
 INSTALL_DEPS="false"
 ENABLE_DB_MONITOR="false"
-ENABLE_LOG_MONITOR="false"
 DISABLE_DB_MONITOR="false"
-DISABLE_LOG_MONITOR="false"
 TMP_DIR=""
 
 usage() {
-  cat <<'EOF'
+  cat <<'EOF_USAGE'
 Usage: bash install.sh [options]
 
 Options:
   --install               Install files (default), keep existing config/data.
   --upgrade               Upgrade files, keep existing config/data.
-  --uninstall             Remove program and service files, keep config/data.
-  --purge                 Remove all files, config, mapping and state.
+  --uninstall             Remove program and DB monitor service files, keep config/data.
+  --purge                 Remove all files, config and state.
   --yes                   Skip interactive confirmation.
   --install-deps          Allow apt install of git/python3/curl.
   --enable-db-monitor     Enable and start sub-notify-db.service after install.
-  --enable-log-monitor    Enable and start sub-notify.service after install.
   --disable-db-monitor    Disable and stop sub-notify-db.service after install.
-  --disable-log-monitor   Disable and stop sub-notify.service after install.
   --help                  Show this help.
-
-Legacy compatibility:
-  --enable-subnotify-db   Same as --enable-db-monitor.
-EOF
+EOF_USAGE
 }
 
 cleanup() {
@@ -74,14 +67,8 @@ for arg in "$@"; do
     --enable-db-monitor|--enable-subnotify-db)
       ENABLE_DB_MONITOR="true"
       ;;
-    --enable-log-monitor)
-      ENABLE_LOG_MONITOR="true"
-      ;;
     --disable-db-monitor)
       DISABLE_DB_MONITOR="true"
-      ;;
-    --disable-log-monitor)
-      DISABLE_LOG_MONITOR="true"
       ;;
     --help)
       usage
@@ -182,14 +169,20 @@ target.chmod(0o600)
 PY
 }
 
-ensure_legacy_env() {
-  if [ ! -f "$LEGACY_ENV_FILE" ]; then
-    cat > "$LEGACY_ENV_FILE" <<'EOF'
-BOT_TOKEN=''
-CHAT_ID=''
-THREAD_ID=''
-EOF
-    chmod 600 "$LEGACY_ENV_FILE"
+cleanup_old_legacy() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now sub-notify.service >/dev/null 2>&1 || true
+  fi
+
+  rm -f "$OLD_BIN_SUB_NOTIFY"
+  rm -f "$OLD_SERVICE_FILE"
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
+
+  if [ -f "$MAPPING_FILE" ]; then
+    echo "旧 mapping 文件 /etc/sub-map.tsv 已不再使用。可手动删除。"
   fi
 }
 
@@ -200,10 +193,10 @@ remove_runtime_files() {
   fi
 
   rm -f "$BIN_PASAR"
-  rm -f "$BIN_LOG_MONITOR"
-  rm -f /usr/local/bin/sub-notify
   rm -f "$DB_SERVICE_FILE"
-  rm -f "$LOG_SERVICE_FILE"
+  rm -f "$OLD_BIN_SUB_NOTIFY"
+  rm -f "$OLD_SERVICE_FILE"
+  rm -f /usr/local/bin/sub-notify
   rm -rf "$INSTALL_DIR"
 
   if command -v systemctl >/dev/null 2>&1; then
@@ -214,19 +207,24 @@ remove_runtime_files() {
 run_uninstall() {
   remove_runtime_files
 
-  echo "Config kept:"
+  echo "已卸载程序与服务文件。"
+  echo "默认保留："
   echo "  /etc/pasar-easylink.env"
-  echo "  /etc/sub-notify.env"
-  echo "  /etc/sub-map.tsv"
   echo "  /var/lib/pasar-eazylink"
+
+  if [ -f "$MAPPING_FILE" ]; then
+    echo "  /etc/sub-map.tsv（已不再使用，默认保留）"
+    echo "旧 mapping 文件 /etc/sub-map.tsv 已不再使用。可手动删除。"
+  fi
+
   echo
-  echo "To remove all configs and data, run:"
+  echo "如需彻底清理，请执行："
   echo "  bash install.sh --purge --yes"
 }
 
 run_purge() {
   if [ "$YES" != "true" ]; then
-    echo "This will remove all configs, mappings and state files. Type YES to continue:"
+    echo "This will remove all configs and state files. Type YES to continue:"
     read -r confirm
     if [ "$confirm" != "YES" ]; then
       echo "Cancelled."
@@ -286,21 +284,15 @@ install_files() {
 
   install -d /usr/local/bin
   install -m 755 "$INSTALL_DIR/bin/pasar" "$BIN_PASAR"
-  install -m 755 "$INSTALL_DIR/bin/sub-notify.sh" "$BIN_LOG_MONITOR"
 
   install -d /etc/systemd/system
   install -m 644 "$INSTALL_DIR/systemd/sub-notify-db.service" "$DB_SERVICE_FILE"
-  install -m 644 "$INSTALL_DIR/systemd/sub-notify.service" "$LOG_SERVICE_FILE"
 
   mkdir -p "$STATE_DIR"
 
   merge_env_defaults "$CONFIG_FILE" "$INSTALL_DIR/config/pasar-easylink.env.example"
-  ensure_legacy_env
 
-  if [ ! -f "$MAPPING_FILE" ]; then
-    touch "$MAPPING_FILE"
-    chmod 600 "$MAPPING_FILE"
-  fi
+  cleanup_old_legacy
 
   if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload >/dev/null 2>&1 || true
@@ -308,21 +300,16 @@ install_files() {
     if [ "$ENABLE_DB_MONITOR" = "true" ]; then
       systemctl enable --now sub-notify-db.service
     fi
-    if [ "$ENABLE_LOG_MONITOR" = "true" ]; then
-      systemctl enable --now sub-notify.service
-    fi
     if [ "$DISABLE_DB_MONITOR" = "true" ]; then
       systemctl disable --now sub-notify-db.service
-    fi
-    if [ "$DISABLE_LOG_MONITOR" = "true" ]; then
-      systemctl disable --now sub-notify.service
     fi
   fi
 
   python3 -m py_compile "$INSTALL_DIR/pasar_eazylink"/*.py "$BIN_PASAR"
 
   hash -r 2>/dev/null || true
-  echo "Installed. Run:"
+  echo "订阅与短链管理 v0.9.0 安装完成。"
+  echo "运行命令："
   echo "  pasar easylink"
   echo "  pasar monitor-db --test"
 }

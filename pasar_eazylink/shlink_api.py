@@ -162,9 +162,9 @@ def select(cfg: dict, query_prompt=True):
         return None
 
     while True:
-        value = input("选择序号，或输入 0 取消: ").strip()
+        value = input("选择序号，回车/0 取消: ").strip()
 
-        if value == "0":
+        if not value or value == "0":
             return None
 
         if value.isdigit() and 1 <= int(value) <= len(items):
@@ -179,6 +179,7 @@ def test_api(cfg: dict):
 
     if data:
         import json
+
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
         print(raw)

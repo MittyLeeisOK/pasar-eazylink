@@ -19,7 +19,6 @@ def usage() -> int:
     print("Usage:")
     print("  pasar easylink")
     print("  pasar monitor-db [--test] [--send-test]")
-    print("  pasar subnotify-db [--test] [--send-test]  # legacy alias")
     return 1
 
 
