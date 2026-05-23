@@ -31,7 +31,7 @@ def parse_nginx_access_line(line: str) -> dict | None:
     }
 
 
-def read_tail(path: str, max_bytes: int = 5 * 1024 * 1024) -> list[str]:
+def read_tail(path: str, max_bytes: int = 2 * 1024 * 1024) -> list[str]:
     p = Path(path)
     if not p.exists() or not p.is_file():
         return []
@@ -49,6 +49,7 @@ def find_matching_request(
     user_agent: str,
     window_seconds: int,
     allowed_statuses: set[str],
+    tail_bytes: int = 2 * 1024 * 1024,
 ) -> dict | None:
     db_local = db_created_at.astimezone()
     target_ua = user_agent or ""
@@ -57,7 +58,7 @@ def find_matching_request(
         statuses = {"200", "304"}
 
     candidates: list[tuple] = []
-    for line in read_tail(log_path):
+    for line in read_tail(log_path, tail_bytes):
         row = parse_nginx_access_line(line)
         if not row:
             continue

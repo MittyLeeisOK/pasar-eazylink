@@ -30,6 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/in
 ```
 
 启动菜单：`pasar easylink`
+自测命令：`pasar self-test`
 
 订阅监控说明：
 - 只使用 PasarGuard `user_subscription_updates` 作为触发源。
