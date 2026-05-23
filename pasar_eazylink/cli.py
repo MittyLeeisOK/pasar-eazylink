@@ -17,11 +17,11 @@ def menu(title, items):
 
 
 def ask():
-    return (input('请输入选项: ').strip() or '0').lower()
+    return input('请输入选项: ').strip().lower()
 
 
 def yesno(prompt):
-    return input(prompt).strip().lower() == 'yes'
+    return (input(prompt).strip().lower() or 'no') == 'yes'
 
 
 def create_link(cfg):
@@ -47,7 +47,7 @@ def manage_short(cfg):
     while True:
         menu('=== 管理短链 ===', [('1', '查看短链'), ('2', '修改短链'), ('3', '删除短链'), ('4', '更新用户订阅目标'), ('0', '返回')])
         o = ask()
-        if o == '0':
+        if o in {'', '0'}:
             return
         if o == '1':
             show_list(cfg, input('关键词(回车全部): ').strip())
@@ -73,7 +73,7 @@ def db_menu():
     while True:
         menu('=== 订阅监控 ===', [('1', '测试'), ('2', '发送测试'), ('3', '启动'), ('4', '停止'), ('5', '重启'), ('6', '状态'), ('7', '日志'), ('0', '返回')])
         o = ask()
-        if o == '0':
+        if o in {'', '0'}:
             return
         m = {
             '1': ['pasar', 'monitor-db', '--test'],
@@ -119,9 +119,9 @@ def settings(cfg):
             print(cfg)
         elif o == '4':
             while True:
-                menu('=== 订阅监控设置 ===', [('1', 'DB路径'), ('2', 'Nginx日志路径'), ('3', '轮询间隔'), ('4', '去重时间'), ('5', '是否补全真实IP'), ('6', '显示时区'), ('7', '监控服务开关'), ('8', '通知服务开关'), ('0', '返回')])
+                menu('=== 订阅监控设置 ===', [('1', 'DB路径'), ('2', 'Nginx日志路径'), ('3', '轮询间隔'), ('4', '去重时间'), ('5', '是否补全真实IP'), ('6', '显示时区'), ('7', '监控服务开关'), ('0', '返回')])
                 x = ask()
-                if x == '0':
+                if x in {'', '0'}:
                     break
                 keys = {'1': 'PASARGUARD_DB_PATH', '2': 'NGINX_ACCESS_LOG', '3': 'DB_MONITOR_POLL_SECONDS', '4': 'DB_MONITOR_DEDUP_SECONDS', '5': 'DB_MONITOR_LOOKUP_NGINX_IP', '6': 'DISPLAY_TIMEZONE'}
                 if x in keys:
@@ -134,11 +134,6 @@ def settings(cfg):
                         subprocess.run(['systemctl', 'enable', '--now', 'sub-notify-db.service'], check=False)
                     else:
                         subprocess.run(['systemctl', 'disable', '--now', 'sub-notify-db.service'], check=False)
-                elif x == '8':
-                    if yesno('启用通知服务？输入yes启用(否则禁用): '):
-                        subprocess.run(['systemctl', 'enable', '--now', 'sub-notify.service'], check=False)
-                    else:
-                        subprocess.run(['systemctl', 'disable', '--now', 'sub-notify.service'], check=False)
         elif o in groups:
             edit_group(f"=== {dict([('1','Pasar设置'),('2','Shlink设置'),('3','Telegram设置'),('5','安装维护设置')])[o]} ===", groups[o])
 
@@ -148,7 +143,7 @@ def main_menu():
         cfg = load_config()
         menu(f'=== 订阅与短链管理 v{__version__} ===', [('1', '快速新增用户+短链'), ('2', '管理短链'), ('3', '订阅监控'), ('4', '设置'), ('0', '退出')])
         o = ask()
-        if o == '0':
+        if o in {'', '0'}:
             return
         if o == '1':
             create_link(cfg)

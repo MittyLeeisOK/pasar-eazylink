@@ -7,7 +7,7 @@ DEFAULT_CONFIG={
 'SHLINK_API_BASE':'https://go.mitty.space/rest/v3','SHLINK_API_KEY':'','SHORT_DOMAIN':'https://go.mitty.space','SUB_BASE_URL':'https://pasar.mitty.space/sub',
 'TG_BOT_TOKEN':'','TG_CHAT_ID':'','TG_THREAD_ID':'',
 'PASARGUARD_DB_PATH':'/var/lib/pasarguard/db.sqlite3','NGINX_ACCESS_LOG':'/var/log/nginx/access.log','DB_MONITOR_STATE_FILE':'/var/lib/pasar-eazylink/db-monitor.state',
-'DB_MONITOR_POLL_SECONDS':'15','DB_MONITOR_DEDUP_SECONDS':'120','DB_MONITOR_LOOKUP_NGINX_IP':'true','DB_MONITOR_NGINX_LOOKBACK_SECONDS':'600','DB_MONITOR_NGINX_STATUS':'200,304','DISPLAY_TIMEZONE':'local'}
+'DB_MONITOR_POLL_SECONDS':'15','DB_MONITOR_BATCH_SIZE':'20','DB_MONITOR_NGINX_TAIL_BYTES':'2097152','DB_MONITOR_LOOKUP_NGINX_IP':'true','DB_MONITOR_NGINX_LOOKBACK_SECONDS':'600','DB_MONITOR_NGINX_STATUS':'200,304','DISPLAY_TIMEZONE':'local'}
 
 def parse_env_file(path:Path)->dict:
  d={}
