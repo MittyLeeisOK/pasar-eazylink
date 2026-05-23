@@ -62,6 +62,19 @@ def format_sub_path(path: str) -> str:
     return mask_path(path or "")
 
 
+def build_masked_request_url(path: str, scheme: str = "https", host: str = "example.com") -> str:
+    """
+    Backward-compatible helper kept for self-test/import stability.
+    Returns a masked absolute URL built from a subscription path.
+    """
+    safe_scheme = (scheme or "https").strip() or "https"
+    safe_host = (host or "example.com").strip() or "example.com"
+    masked_path = format_sub_path(path or "")
+    if not masked_path.startswith("/"):
+        masked_path = f"/{masked_path}"
+    return f"{safe_scheme}://{safe_host}{masked_path}"
+
+
 def lookup_ip_geo(ip: str) -> str:
     ip = (ip or "").strip()
     if not ip or ip in {"127.0.0.1", "::1"}:
