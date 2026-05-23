@@ -50,10 +50,12 @@ def find_matching_request(
     window_seconds: int,
     allowed_statuses: set[str],
     tail_bytes: int = 2 * 1024 * 1024,
+    db_ip: str = "",
 ) -> dict | None:
     db_local = db_created_at.astimezone()
     target_ua = user_agent or ""
     statuses = {s.strip() for s in allowed_statuses if s and s.strip()}
+    target_ip = (db_ip or "").strip()
     if not statuses:
         statuses = {"200", "304"}
 
@@ -75,6 +77,7 @@ def find_matching_request(
 
         candidates.append(
             (
+                bool(target_ip) and row["remote_addr"] == target_ip,
                 row["user_agent"] == target_ua,
                 row["method"] == "GET",
                 row["status"] == "200",

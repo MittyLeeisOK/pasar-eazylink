@@ -263,6 +263,7 @@ def match_nginx(target_row: sqlite3.Row, cfg: dict) -> dict | None:
         to_int(cfg.get("DB_MONITOR_NGINX_LOOKBACK_SECONDS", "600"), 600, 1),
         statuses,
         to_int(cfg.get("DB_MONITOR_NGINX_TAIL_BYTES", "2097152"), 2097152, 4096),
+        str(target_row["ip"] or ""),
     )
 
 
