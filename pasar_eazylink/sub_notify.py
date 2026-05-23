@@ -104,9 +104,9 @@ def lookup_ip_geo(ip: str) -> str:
 def render_status(raw: str) -> str:
     value = (raw or "").strip().lower()
     if value in {"active", "enabled", "ok"}:
-        return f"✅ {value or 'active'}"
+        return value or "active"
     if value in {"disabled", "inactive", "banned", "blocked"}:
-        return f"⛔ {value}"
+        return value
     return value or "unknown"
 
 
@@ -139,22 +139,20 @@ def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) 
     show_db_ip = db_ip and db_ip not in {"127.0.0.1", "::1"}
     hwid = str(row["hwid"] or "").strip()
     hwid_line = f"\nHWID：<code>{html.escape(hwid)}</code>" if hwid and hwid.lower() not in {"none", "<none>"} else ""
-    db_ip_line = f"DB记录IP：<code>{html.escape(db_ip)}</code>{hwid_line}\n" if show_db_ip else ""
+    db_ip_line = f"<b>DB记录IP：</b><code>{html.escape(db_ip)}</code>{hwid_line}\n" if show_db_ip else ""
     username = str(row["username"] or f"id={row['user_id']}")
     return (
         "#订阅拉取提醒\n"
-        f"时间：{html.escape(format_display_time(str(row['created_at'] or ''), cfg.get('DISPLAY_TIMEZONE', 'local')))}\n"
-        f"记录ID：{row['id']}\n"
+        f"<b>时间：</b>{html.escape(format_display_time(str(row['created_at'] or ''), cfg.get('DISPLAY_TIMEZONE', 'local')))}\n"
         "---\n"
-        f"用户：{html.escape(username)}\n"
-        f"用户ID：{row['user_id']}\n"
-        f"状态：{html.escape(render_status(str(row['status'] or '')))}\n"
-        f"IP：{source_ip}{source_geo_line}\n"
+        f"<b>用户：</b><b>{html.escape(username)}</b> (ID: {row['user_id']}, {html.escape(render_status(str(row['status'] or '')) )})\n"
+        f"<b>IP：</b>{source_ip}{source_geo_line}\n"
         f"{db_ip_line}"
-        f"UA：<code>{html.escape(ua_raw or '-')}</code>\n"
-        f"路径：<code>{html.escape(req_path or '-')}</code>\n"
-        f"响应大小：{response_size} B\n"
+        f"<b>UA：</b><code>{html.escape(ua_raw or '-')}</code>\n"
+        f"<b>路径：</b><code>{html.escape(req_path or '-')}</code>\n"
+        f"<b>响应大小：</b>{response_size} B\n"
         "---\n"
+        f"<i>ID：{row['id']}</i>\n"
     )
 
 
