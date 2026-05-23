@@ -23,9 +23,8 @@ def sync_env(cfg: dict):
     TG_ENV.write_text("\n".join(lines) + "\n")
     os.chmod(TG_ENV, 0o600)
 
-    os.system("systemctl restart sub-notify.service >/dev/null 2>&1")
     os.system("systemctl restart sub-notify-db.service >/dev/null 2>&1")
-    print("TG 配置已同步到 /etc/sub-notify.env，并尝试重启监控服务。")
+    print("TG 配置已同步到 /etc/sub-notify.env，并尝试重启 DB 监控服务。")
 
 
 def test(cfg: dict):
