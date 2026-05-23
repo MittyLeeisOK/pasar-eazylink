@@ -1,0 +1,14 @@
+[Unit]
+Description=Pasar Eazy Link DB-based subscription notification service
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pasar subnotify-db
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

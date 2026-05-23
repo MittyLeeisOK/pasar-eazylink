@@ -78,6 +78,33 @@ def prompt_menu() -> str:
     return normalize_menu_opt(input(green("请输入选项: ")))
 
 
+def config_bool(value: str) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def legacy_mapping_enabled(cfg: dict) -> bool:
+    return config_bool(cfg.get("EAZYLINK_WRITE_LEGACY_MAPPING", "false"))
+
+
+def maybe_write_legacy_mapping(cfg: dict, token: str, username: str) -> bool:
+    if not legacy_mapping_enabled(cfg):
+        print("Legacy Mapping 写入已关闭，跳过 /etc/sub-map.tsv。")
+        return False
+    add_token(cfg, token, username)
+    return True
+
+
+def run_command(cmd: list[str]):
+    print()
+    print("$ " + " ".join(cmd))
+    try:
+        subprocess.run(cmd, check=False)
+    except FileNotFoundError as exc:
+        print(f"命令不可用：{exc}")
+    except Exception as exc:
+        print(f"命令执行失败：{exc}")
+
+
 def run_upgrade():
     print()
     confirm = input("确认升级？输入 yes 继续: ").strip().lower()
@@ -134,6 +161,7 @@ def run_uninstall(cfg: dict):
     remove_path(Path("/usr/local/bin/pasar"), "命令入口")
     remove_path(Path("/usr/local/bin/sub-notify"), "提醒命令入口")
     remove_path(Path("/etc/systemd/system/sub-notify.service"), "提醒服务文件")
+    remove_path(Path("/etc/systemd/system/sub-notify-db.service"), "DB 提醒服务文件")
     remove_path(Path("/opt/pasar-eazylink"), "安装目录")
     os.system("systemctl daemon-reload >/dev/null 2>&1")
 
@@ -184,7 +212,7 @@ def create_eazy_link(cfg: dict):
         print(f"无法从订阅链接提取 token：{long_url}")
         return
 
-    add_token(cfg, token, username)
+    maybe_write_legacy_mapping(cfg, token, username)
 
     if not shlink_upsert(cfg, slug, long_url):
         return
@@ -196,7 +224,8 @@ def create_eazy_link(cfg: dict):
     print(f"长链接：{long_url}")
     print(f"token：{short_token(token)}")
 
-    show_mapping(cfg, username)
+    if legacy_mapping_enabled(cfg):
+        show_mapping(cfg, username)
 
 
 def update_eazy_link(cfg: dict):
@@ -215,7 +244,7 @@ def update_eazy_link(cfg: dict):
         return
 
     long_url = make_long_url(token, cfg)
-    add_token(cfg, token, username)
+    maybe_write_legacy_mapping(cfg, token, username)
 
     print()
     print("选择要覆盖的短链接。")
@@ -251,7 +280,8 @@ def update_eazy_link(cfg: dict):
     print(f"长链接：{long_url}")
     print(f"token：{short_token(token)}")
 
-    show_mapping(cfg, username)
+    if legacy_mapping_enabled(cfg):
+        show_mapping(cfg, username)
 
 
 def delete_eazy_link(cfg: dict):
@@ -288,27 +318,38 @@ def delete_eazy_link(cfg: dict):
     print("删除完成。说明：这里不删除 PasarGuard 面板中的真实用户。")
 
 
-def view_menu(cfg: dict):
+def view_shortlinks(cfg: dict):
+    query = input("关键词过滤，留空查看全部: ").strip()
+    show_shortlinks(cfg, query)
+
+
+def legacy_mapping_menu(cfg: dict):
     items = [
-        ("1", "查看 Mapping"),
-        ("2", "查看短链接列表"),
-        ("3", "同时查看 Mapping 和短链接"),
+        ("1", "查看 user mapping"),
+        ("2", "按用户删除 mapping"),
+        ("3", "手动新增 token -> 用户 mapping"),
         ("0", "返回"),
     ]
     while True:
-        menu_block("数据查看", items)
+        menu_block("Legacy Mapping 工具", items)
         opt = prompt_menu()
 
         if opt == "1":
             query = input("关键词过滤，留空查看全部: ").strip()
             show_mapping(cfg, query)
         elif opt == "2":
-            query = input("关键词过滤，留空查看全部: ").strip()
-            show_shortlinks(cfg, query)
+            username = input_nonempty("用户名: ")
+            if not validate_username(username):
+                print("用户名只能包含字母、数字、点、下划线、短横线，长度 3-64。")
+                continue
+            delete_user(cfg, username)
         elif opt == "3":
-            query = input("关键词过滤，留空查看全部: ").strip()
-            show_mapping(cfg, query)
-            show_shortlinks(cfg, query)
+            token = input_nonempty("token: ")
+            username = input_nonempty("用户名: ")
+            if not validate_username(username):
+                print("用户名只能包含字母、数字、点、下划线、短横线，长度 3-64。")
+                continue
+            add_token(cfg, token, username)
         elif opt == "0":
             return
         else:
@@ -439,6 +480,38 @@ def shortlink_manage_menu(cfg: dict):
             print("无效选项，请重试。")
 
 
+def subnotify_menu():
+    items = [
+        ("1", "测试最近一条订阅记录，不发送 TG"),
+        ("2", "发送最近一条订阅记录作为测试"),
+        ("3", "查看 sub-notify-db.service 状态"),
+        ("4", "启动 sub-notify-db.service"),
+        ("5", "停止 sub-notify-db.service"),
+        ("6", "查看最近日志"),
+        ("0", "返回"),
+    ]
+    while True:
+        menu_block("DB 订阅提醒", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            run_command(["pasar", "subnotify-db", "--test"])
+        elif opt == "2":
+            run_command(["pasar", "subnotify-db", "--send-test"])
+        elif opt == "3":
+            run_command(["systemctl", "status", "sub-notify-db.service", "--no-pager", "-l"])
+        elif opt == "4":
+            run_command(["systemctl", "enable", "--now", "sub-notify-db.service"])
+        elif opt == "5":
+            run_command(["systemctl", "disable", "--now", "sub-notify-db.service"])
+        elif opt == "6":
+            run_command(["journalctl", "-u", "sub-notify-db.service", "-n", "80", "--no-pager"])
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
 def settings_menu(cfg: dict):
     items = [
         ("1", "Pasar Panel 地址"),
@@ -461,6 +534,7 @@ def settings_menu(cfg: dict):
         ("18", "提醒轮询间隔秒数"),
         ("19", "提醒状态文件路径"),
         ("20", "提醒用户状态过滤"),
+        ("21", "Legacy Mapping 自动写入"),
         ("0", "返回"),
     ]
     while True:
@@ -524,9 +598,7 @@ def settings_menu(cfg: dict):
             print("=== 当前配置 ===")
             print(f"Pasar Panel 地址：{cfg['PASAR_PANEL_HOST']}")
             print(f"Pasar Panel 端口：{cfg['PASAR_PANEL_PORT']}")
-            print(f"Pasar Access Token：{mask(cfg['PASAR_API_KEY'])}")
             print(f"Shlink API Base：{cfg['SHLINK_API_BASE']}")
-            print(f"Shlink API Key：{mask(cfg['SHLINK_API_KEY'])}")
             print(f"短链域名：{cfg['SHORT_DOMAIN']}")
             print(f"订阅基础地址：{cfg['SUB_BASE_URL']}")
             print(f"Mapping 表：{cfg['SUB_MAP_FILE']}")
@@ -537,6 +609,7 @@ def settings_menu(cfg: dict):
             print(f"提醒轮询间隔：{cfg['SUB_NOTIFY_POLL_SECONDS']}")
             print(f"提醒状态文件：{cfg['SUB_NOTIFY_STATE_FILE']}")
             print(f"提醒状态过滤：{cfg['SUB_NOTIFY_USER_STATUS'] or '<empty>'}")
+            print(f"Legacy Mapping 自动写入：{cfg['EAZYLINK_WRITE_LEGACY_MAPPING']}")
         elif opt == "12":
             test_pasar(cfg)
         elif opt == "13":
@@ -568,6 +641,15 @@ def settings_menu(cfg: dict):
             ).strip()
             cfg["SUB_NOTIFY_USER_STATUS"] = value
             save_config(cfg)
+        elif opt == "21":
+            value = input(
+                f"Legacy Mapping 自动写入（true/false） [当前: {cfg['EAZYLINK_WRITE_LEGACY_MAPPING']}]: "
+            ).strip().lower()
+            if value in {"true", "false"}:
+                cfg["EAZYLINK_WRITE_LEGACY_MAPPING"] = value
+                save_config(cfg)
+            elif value:
+                print("请输入 true 或 false。")
         elif opt == "0":
             return
         else:
@@ -579,9 +661,11 @@ def main_menu():
         ("1", "新增 Eazy Link"),
         ("2", "更新 Eazy Link"),
         ("3", "删除 Eazy Link"),
-        ("4", "查看 Mapping / 短链接"),
-        ("5", "短链接管理"),
-        ("6", "设置"),
+        ("4", "查看短链接"),
+        ("5", "单独短链接管理"),
+        ("6", "DB 订阅提醒"),
+        ("7", "设置"),
+        ("8", "Legacy Mapping 工具"),
         ("0", "退出"),
     ]
     while True:
@@ -597,11 +681,15 @@ def main_menu():
         elif opt == "3":
             delete_eazy_link(cfg)
         elif opt == "4":
-            view_menu(cfg)
+            view_shortlinks(cfg)
         elif opt == "5":
             shortlink_manage_menu(cfg)
         elif opt == "6":
+            subnotify_menu()
+        elif opt == "7":
             settings_menu(cfg)
+        elif opt == "8":
+            legacy_mapping_menu(cfg)
         elif opt == "0":
             return
         else:
@@ -609,8 +697,9 @@ def main_menu():
             return
 
 
-def main():
-    if len(sys.argv) >= 2 and sys.argv[1] == "easylink":
+def main(argv: list[str] | None = None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args or args[0] == "easylink":
         main_menu()
     else:
         print("Usage: pasar easylink")

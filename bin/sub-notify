@@ -14,4 +14,4 @@ elif os.path.isdir(os.path.join(install_dir, "pasar_eazylink")):
 from pasar_eazylink.sub_notify import main
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
