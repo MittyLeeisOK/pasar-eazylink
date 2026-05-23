@@ -5,6 +5,7 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from .config import load_config
@@ -58,6 +59,19 @@ def mask_path(path: str) -> str:
     return f"/sub/{token_main[:8]}...{token_main[-6:]}{suffix}"
 
 
+def build_masked_request_url(path: str, cfg: dict) -> str:
+    if not path:
+        return ""
+    if path.startswith("http://") or path.startswith("https://"):
+        return mask_path(path)
+    base = cfg.get("SUB_BASE_URL") or cfg.get("SHORT_DOMAIN") or ""
+    parsed = urlparse(base if "://" in base else f"https://{base.lstrip('/')}")
+    prefix = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+    if path.startswith("/sub/") and prefix:
+        return f"{prefix}{mask_path(path)}"
+    return mask_path(path)
+
+
 def to_int(value: str | None, default: int, minimum: int) -> int:
     try:
         return max(int(value or default), minimum)
@@ -79,8 +93,9 @@ def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) 
     source_ip = f"<code>{html.escape(str(nginx_match['remote_addr']))}</code>" if nginx_match else "未匹配到 Nginx 真实IP"
     nginx_lines = ""
     if nginx_match:
+        req_url = build_masked_request_url(str(nginx_match["path"] or ""), cfg)
         nginx_lines = (
-            f"\nNginx路径：<code>{html.escape(mask_path(nginx_match['path']))}</code>"
+            f"\nNginx请求：<code>{html.escape(req_url)}</code>"
             f"\nNginx状态：{html.escape(str(nginx_match['status']))}"
             f"\n响应大小：{int(nginx_match['body_bytes'])} B"
         )
@@ -88,6 +103,10 @@ def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) 
     hwid_line = ""
     if hwid and hwid.lower() not in {"none", "<none>"}:
         hwid_line = f"\nHWID：<code>{html.escape(hwid)}</code>"
+    model = str(ua.get("model") or "").strip()
+    model_line = ""
+    if model and model.lower() != "unknown":
+        model_line = f"\n型号：{html.escape(model)}"
     return (
         "#订阅拉取提醒\n\n"
         f"用户：<b>{html.escape(str(row['username'] or f'id={row['user_id']}'))}</b>\n"
@@ -97,7 +116,7 @@ def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) 
         f"DB记录IP：<code>{html.escape(str(row['ip'] or ''))}</code>{hwid_line}\n"
         f"设备：{html.escape(ua['client'])} / {html.escape(ua['device_type'])}\n"
         f"系统：{html.escape(ua['os'])}\n"
-        f"型号：{html.escape(ua['model'])}\n"
+        f"{model_line}"
         f"UA摘要：{html.escape(ua['summary'])}"
         f"{nginx_lines}\n\n"
         f"时间：{html.escape(format_display_time(str(row['created_at'] or ''), cfg.get('DISPLAY_TIMEZONE', 'local')))}\n"
@@ -181,12 +200,13 @@ def monitor_loop(cfg: dict) -> int:
 
         for row in rows:
             row_id = int(row["id"])
-            text = build_message(row, cfg, match_nginx(row, cfg))
+            matched = match_nginx(row, cfg)
+            text = build_message(row, cfg, matched)
             ok, code, err = send_tg(cfg, text)
             if ok:
                 state["last_id"] = row_id
                 save_state(state_file, state)
-                print(f"[monitor-db] sent id={row_id} user={row['username'] or row['user_id']} ip={row['ip']} ua={parse_user_agent(str(row['user_agent'] or ''))['client']}")
+                print(f"[monitor-db] sent id={row_id} user={row['username'] or row['user_id']} ip={row['ip']} status={matched['status'] if matched else 'na'}")
             else:
                 print(f"[monitor-db] send failed id={row_id} http={code} error={err}")
                 break

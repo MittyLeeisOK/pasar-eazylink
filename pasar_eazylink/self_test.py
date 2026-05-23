@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .config import load_config
 from .nginx_log import find_matching_request, parse_nginx_access_line, read_tail
-from .sub_notify import parse_db_time_utc
+from .sub_notify import build_masked_request_url, parse_db_time_utc
 
 
 def run_self_test() -> int:
@@ -93,8 +93,23 @@ def run_self_test() -> int:
         mark("WARN" if Path(legacy).exists() else "PASS", f"legacy cleaned: {legacy}")
 
     if cfg_path.exists():
+        cfg_text = cfg_path.read_text(errors="ignore")
+        mark("PASS" if "DB_MONITOR_DEDUP_SECONDS" not in cfg_text else "FAIL", "config removed DB_MONITOR_DEDUP_SECONDS")
         mode = oct(cfg_path.stat().st_mode & 0o777)
         mark("PASS" if mode == "0o600" else "WARN", f"config mode: {mode} (recommended 0o600)")
+
+    repo_cfg_example = Path("config/pasar-easylink.env.example")
+    if repo_cfg_example.exists():
+        mark("PASS" if "DB_MONITOR_DEDUP_SECONDS" not in repo_cfg_example.read_text(errors="ignore") else "FAIL", "template removed DB_MONITOR_DEDUP_SECONDS")
+
+    dedup_hits = subprocess.run(["rg", "-n", "dedup|DEDUP", "pasar_eazylink", "config", "README.md"], check=False, capture_output=True, text=True)
+    mark("PASS" if dedup_hits.returncode == 1 else "FAIL", "no dedup logic remains")
+
+    test_cmd = subprocess.run(["pasar", "monitor-db", "--test"], check=False, capture_output=True, text=True)
+    test_out = test_cmd.stdout + test_cmd.stderr
+    mark("PASS" if "Nginx请求" in test_out and "Nginx路径" not in test_out else "WARN", "monitor-db --test uses Nginx请求 field")
+    if "Nginx请求：<code>" in test_out:
+        mark("PASS" if "http://" in test_out or "https://" in test_out else "FAIL", "Nginx请求 contains scheme prefix")
 
     mark("PASS", "cli import smoke: pasar_eazylink.cli")
 
