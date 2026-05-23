@@ -10,6 +10,16 @@ CONFIG=/etc/pasar-easylink.env
 STATE=/var/lib/pasar-eazylink
 REPO_TARBALL_URL="https://codeload.github.com/MittyLeeisOK/pasar-eazylink/tar.gz/refs/heads/main"
 
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+  GREEN='\033[32m'; YELLOW='\033[33m'; RED='\033[31m'; RESET='\033[0m'
+else
+  GREEN=''; YELLOW=''; RED=''; RESET=''
+fi
+
+ok() { echo -e "${GREEN}[OK] $*${RESET}"; }
+warn() { echo -e "${YELLOW}[WARN] $*${RESET}"; }
+err() { echo -e "${RED}[ERROR] $*${RESET}"; }
+
 ACTION=install
 YES=false
 ENABLE_DB_MONITOR=false
@@ -37,7 +47,7 @@ for a in "$@"; do
   esac
 done
 
-[ "$(id -u)" -eq 0 ] || { echo "root required"; exit 1; }
+[ "$(id -u)" -eq 0 ] || { err "root required"; exit 1; }
 
 cleanup_old() {
   systemctl disable --now sub-notify.service >/dev/null 2>&1 || true
@@ -84,7 +94,8 @@ stage_source() {
 
 if [ "$ACTION" = uninstall ]; then
   remove_runtime
-  echo "已卸载程序，保留 $CONFIG 与 $STATE"
+  ok "卸载完成。"
+  warn "已保留 $CONFIG 与 $STATE"
   exit 0
 fi
 
@@ -105,7 +116,7 @@ install -m 644 "$INSTALL_DIR/systemd/sub-notify-db.service" "$DB_SERVICE"
 [ -f "$CONFIG" ] || install -m 600 "$INSTALL_DIR/config/pasar-easylink.env.example" "$CONFIG"
 
 cleanup_old
-echo "安装完成，请使用命令 pasar easylink 唤起CLI菜单"
+ok "安装完成。运行：pasar easylink"
 
 [ "$ENABLE_DB_MONITOR" = true ] && systemctl enable --now sub-notify-db.service || true
 [ "$DISABLE_DB_MONITOR" = true ] && systemctl disable --now sub-notify-db.service || true

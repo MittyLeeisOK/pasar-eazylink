@@ -164,7 +164,8 @@ def select(cfg: dict, query_prompt=True):
     while True:
         value = input("选择序号，或输入 0 取消: ").strip()
 
-        if value == "0":
+        if value in {"", "0"}:
+            print("已取消")
             return None
 
         if value.isdigit() and 1 <= int(value) <= len(items):

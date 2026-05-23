@@ -17,23 +17,31 @@ def menu(title, items):
 
 
 def ask():
-    return input('请输入选项: ').strip().lower()
+    return (input('请输入选项: ').strip().lower() or '0')
 
 
 def yesno(prompt):
     return (input(prompt).strip().lower() or 'no') == 'yes'
 
 
+def prompt_value(label: str, current: str | None = None):
+    suffix = f" [当前: {current}]" if current else ""
+    value = input(f"输入{label}{suffix}(回车取消): ").strip()
+    return value or None
+
+
 def create_link(cfg):
     list_templates(cfg)
-    u = input('用户名(0返回): ').strip()
+    u = input('用户名(回车取消): ').strip()
     if not u or u == '0':
+        print('已取消')
         return
     if not validate_username(u):
         print(colors.err('用户名格式无效'))
         return
-    tid = input('模板ID(0返回): ').strip()
+    tid = input('模板ID(回车取消): ').strip()
     if not tid or tid == '0':
+        print('已取消')
         return
     long_url = create_user_from_template(cfg, u, int(tid), input('备注(回车留空): ').strip())
     if not long_url:
@@ -55,8 +63,9 @@ def manage_short(cfg):
             it = select(cfg)
             if not it:
                 continue
-            t = input('新的目标长链接或token(回车返回): ').strip()
+            t = input('新的目标长链接或token(回车取消): ').strip()
             if not t:
+                print('已取消')
                 continue
             token = extract_token(t)
             long = make_long_url(token, cfg) if token else t
@@ -105,7 +114,7 @@ def settings(cfg):
                 return
             if x.isdigit() and 1 <= int(x) <= len(keys):
                 key = keys[int(x) - 1]
-                v = input(f"输入{key}(回车保持): ").strip()
+                v = prompt_value(key, cfg.get(key))
                 if v:
                     cfg[key] = v
                     save_config(cfg)
@@ -119,17 +128,17 @@ def settings(cfg):
             print(cfg)
         elif o == '4':
             while True:
-                menu('=== 订阅监控设置 ===', [('1', 'DB路径'), ('2', 'Nginx日志路径'), ('3', '轮询间隔'), ('4', '去重时间'), ('5', '是否补全真实IP'), ('6', '显示时区'), ('7', '监控服务开关'), ('0', '返回')])
+                menu('=== 订阅监控设置 ===', [('1', 'DB路径'), ('2', 'Nginx日志路径'), ('3', '轮询间隔'), ('4', '是否补全真实IP'), ('5', '显示时区'), ('6', '监控服务开关'), ('0', '返回')])
                 x = ask()
                 if x in {'', '0'}:
                     break
-                keys = {'1': 'PASARGUARD_DB_PATH', '2': 'NGINX_ACCESS_LOG', '3': 'DB_MONITOR_POLL_SECONDS', '4': 'DB_MONITOR_DEDUP_SECONDS', '5': 'DB_MONITOR_LOOKUP_NGINX_IP', '6': 'DISPLAY_TIMEZONE'}
+                keys = {'1': 'PASARGUARD_DB_PATH', '2': 'NGINX_ACCESS_LOG', '3': 'DB_MONITOR_POLL_SECONDS', '4': 'DB_MONITOR_LOOKUP_NGINX_IP', '5': 'DISPLAY_TIMEZONE'}
                 if x in keys:
-                    v = input(f"输入{keys[x]}(回车保持): ").strip()
+                    v = prompt_value(keys[x], cfg.get(keys[x]))
                     if v:
                         cfg[keys[x]] = v
                         save_config(cfg)
-                elif x == '7':
+                elif x == '6':
                     if yesno('启用监控服务？输入yes启用(否则禁用): '):
                         subprocess.run(['systemctl', 'enable', '--now', 'sub-notify-db.service'], check=False)
                     else:
