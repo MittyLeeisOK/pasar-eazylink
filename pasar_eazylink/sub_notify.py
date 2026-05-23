@@ -1,7 +1,9 @@
+import argparse
 import html
 import json
 import os
 import sqlite3
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -117,6 +119,27 @@ def fetch_updates(conn: sqlite3.Connection, last_id: int) -> list[sqlite3.Row]:
     return conn.execute(sql, (last_id,)).fetchall()
 
 
+def fetch_latest_update(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    sql = """
+        SELECT
+            s.id,
+            s.user_id,
+            s.created_at,
+            s.user_agent,
+            s.ip,
+            s.hwid,
+            u.username,
+            u.status,
+            u.expire,
+            u.sub_revoked_at
+        FROM user_subscription_updates AS s
+        LEFT JOIN users AS u ON u.id = s.user_id
+        ORDER BY s.id DESC
+        LIMIT 1
+    """
+    return conn.execute(sql).fetchone()
+
+
 def build_message(row: sqlite3.Row) -> str:
     username = (row["username"] or f"id={row['user_id']}").strip()
     status = str(row["status"] or "<none>")
@@ -178,19 +201,70 @@ def run_once(cfg: dict, db_path: str, state_path: Path, status_filter: set[str])
         conn.close()
 
 
-def main():
+def load_runtime_config() -> tuple[dict, str, Path, int, set[str]]:
+    cfg = load_config()
+    db_path = (cfg.get("PASARGUARD_DB_PATH") or "").strip() or "/var/lib/pasarguard/db.sqlite3"
+    state_path = Path((cfg.get("SUB_NOTIFY_STATE_FILE") or "").strip() or "/var/lib/pasar-eazylink/sub-notify.state")
+    poll_seconds = parse_seconds(cfg.get("SUB_NOTIFY_POLL_SECONDS", "15"))
+    status_filter = parse_status_filter(cfg.get("SUB_NOTIFY_USER_STATUS", ""))
+    return cfg, db_path, state_path, poll_seconds, status_filter
+
+
+def latest_message(db_path: str) -> str | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = fetch_latest_update(conn)
+        if row is None:
+            return None
+        return build_message(row)
+    finally:
+        conn.close()
+
+
+def run_test_mode(send: bool) -> int:
+    cfg, db_path, _state_path, _poll_seconds, _status_filter = load_runtime_config()
+    text = latest_message(db_path)
+    if text is None:
+        print("no subscription updates found")
+        return 0
+
+    print(text)
+    if not send:
+        return 0
+
+    if not cfg.get("TG_BOT_TOKEN") or not cfg.get("TG_CHAT_ID"):
+        print("[sub-notify] TG_BOT_TOKEN 或 TG_CHAT_ID 为空。")
+        return 1
+
+    return 0 if send_tg(cfg, text) else 1
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="pasar subnotify-db")
+    parser.add_argument("--test", action="store_true", help="print the latest notification without sending")
+    parser.add_argument("--send-test", action="store_true", help="send the latest notification once")
+    args = parser.parse_args(argv)
+    if args.test and args.send_test:
+        parser.error("--test and --send-test cannot be used together")
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    if args.test:
+        return run_test_mode(send=False)
+    if args.send_test:
+        return run_test_mode(send=True)
+
     while True:
         try:
-            cfg = load_config()
+            cfg, db_path, state_path, poll_seconds, status_filter = load_runtime_config()
             if not cfg.get("TG_BOT_TOKEN") or not cfg.get("TG_CHAT_ID"):
                 print("[sub-notify] TG_BOT_TOKEN 或 TG_CHAT_ID 为空，等待配置。")
                 time.sleep(5)
                 continue
 
-            db_path = (cfg.get("PASARGUARD_DB_PATH") or "").strip() or "/var/lib/pasarguard/db.sqlite3"
-            state_path = Path((cfg.get("SUB_NOTIFY_STATE_FILE") or "").strip() or "/var/lib/pasar-eazylink/sub-notify.state")
-            poll_seconds = parse_seconds(cfg.get("SUB_NOTIFY_POLL_SECONDS", "15"))
-            status_filter = parse_status_filter(cfg.get("SUB_NOTIFY_USER_STATUS", ""))
             ok = run_once(cfg, db_path, state_path, status_filter)
             if not ok:
                 time.sleep(5)
@@ -201,3 +275,7 @@ def main():
             continue
 
         time.sleep(poll_seconds)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

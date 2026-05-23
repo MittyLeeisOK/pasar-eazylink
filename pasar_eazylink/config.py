@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     "SUB_NOTIFY_POLL_SECONDS": "15",
     "SUB_NOTIFY_STATE_FILE": "/var/lib/pasar-eazylink/sub-notify.state",
     "SUB_NOTIFY_USER_STATUS": "",
+    "EAZYLINK_WRITE_LEGACY_MAPPING": "false",
 }
 
 

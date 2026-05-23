@@ -1,10 +1,25 @@
 #!/usr/bin/env bash
 set -e
 
+ENABLE_SUBNOTIFY_DB="false"
+for arg in "$@"; do
+  case "$arg" in
+    --enable-subnotify-db)
+      ENABLE_SUBNOTIFY_DB="true"
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      echo "Usage: bash install.sh [--enable-subnotify-db]" >&2
+      exit 1
+      ;;
+  esac
+done
+
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="/opt/pasar-eazylink"
 CONFIG_FILE="/etc/pasar-easylink.env"
 EXAMPLE_CONFIG="$PROJECT_DIR/config/pasar-easylink.env.example"
+PACKAGE_DIR="$INSTALL_DIR/pasar_eazylink"
 
 mask_value() {
   local v="${1:-}"
@@ -50,6 +65,7 @@ write_config() {
   export PASAR_PANEL_HOST PASAR_PANEL_PORT PASAR_API_KEY SHLINK_API_BASE SHLINK_API_KEY
   export SHORT_DOMAIN SUB_BASE_URL SUB_MAP_FILE TG_BOT_TOKEN TG_CHAT_ID TG_THREAD_ID
   export PASARGUARD_DB_PATH SUB_NOTIFY_POLL_SECONDS SUB_NOTIFY_STATE_FILE SUB_NOTIFY_USER_STATUS
+  export EAZYLINK_WRITE_LEGACY_MAPPING
 
   python3 - "$CONFIG_FILE" <<'PY'
 import os
@@ -73,6 +89,7 @@ keys = [
     "SUB_NOTIFY_POLL_SECONDS",
     "SUB_NOTIFY_STATE_FILE",
     "SUB_NOTIFY_USER_STATUS",
+    "EAZYLINK_WRITE_LEGACY_MAPPING",
 ]
 
 path = Path(sys.argv[1])
@@ -109,6 +126,7 @@ guide_config() {
   : "${SUB_NOTIFY_POLL_SECONDS:=15}"
   : "${SUB_NOTIFY_STATE_FILE:=/var/lib/pasar-eazylink/sub-notify.state}"
   : "${SUB_NOTIFY_USER_STATUS:=}"
+  : "${EAZYLINK_WRITE_LEGACY_MAPPING:=false}"
   local original_short_domain="$SHORT_DOMAIN"
   local original_shlink_base="$SHLINK_API_BASE"
 
@@ -137,19 +155,18 @@ guide_config() {
   prompt_value SUB_NOTIFY_POLL_SECONDS "提醒轮询间隔秒数"
   prompt_value SUB_NOTIFY_STATE_FILE "提醒状态文件路径"
   prompt_value SUB_NOTIFY_USER_STATUS "提醒用户状态过滤（逗号分隔，可留空）"
+  prompt_value EAZYLINK_WRITE_LEGACY_MAPPING "Legacy Mapping 自动写入（true/false）"
 
   write_config
   echo "配置已保存到 ${CONFIG_FILE}"
 }
 
 install -d "$INSTALL_DIR"
-install -d "$INSTALL_DIR/pasar_eazylink"
-
-if [[ "$PROJECT_DIR" == "$INSTALL_DIR" ]]; then
-  echo "检测到安装目录与源码目录一致，将直接使用当前目录源码。"
-  echo "如需升级，请先在 ${PROJECT_DIR} 执行 git pull 后再运行安装脚本。"
+if [ "$PROJECT_DIR" != "$INSTALL_DIR" ]; then
+  rm -rf "$PACKAGE_DIR"
+  cp -a "$PROJECT_DIR/pasar_eazylink" "$INSTALL_DIR/"
 else
-  cp -a "$PROJECT_DIR/pasar_eazylink/"*.py "$INSTALL_DIR/pasar_eazylink/"
+  echo "Source directory is already $INSTALL_DIR, skip copying package files"
 fi
 install -m 755 "$PROJECT_DIR/bin/pasar" /usr/local/bin/pasar
 install -m 755 "$PROJECT_DIR/bin/sub-notify" /usr/local/bin/sub-notify
@@ -176,39 +193,25 @@ else
   echo "非交互环境，跳过配置引导。请手动编辑 ${CONFIG_FILE}"
 fi
 
-python3 -m py_compile "$INSTALL_DIR/pasar_eazylink/"*.py
+python3 -m py_compile "$PACKAGE_DIR/"*.py
 python3 -m py_compile /usr/local/bin/pasar
 python3 -m py_compile /usr/local/bin/sub-notify
 echo "安装检查通过：脚本已编译。"
 
 if command -v systemctl >/dev/null 2>&1; then
-  cat >/etc/systemd/system/sub-notify.service <<'SERVICE'
-[Unit]
-Description=Pasar EazyLink subscription pull notify (SQLite)
-After=network.target
-
-[Service]
-Type=simple
-EnvironmentFile=-/etc/pasar-easylink.env
-EnvironmentFile=-/etc/sub-notify.env
-ExecStart=/usr/local/bin/sub-notify
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-SERVICE
-
+  install -d /etc/systemd/system
+  install -m 644 "$PROJECT_DIR/systemd/sub-notify-db.service" /etc/systemd/system/sub-notify-db.service
   systemctl daemon-reload >/dev/null 2>&1 || true
-  systemctl enable --now sub-notify.service >/dev/null 2>&1 || true
+  if [ "$ENABLE_SUBNOTIFY_DB" = "true" ]; then
+    systemctl enable --now sub-notify-db.service
+  fi
 fi
 
-if command -v pasar >/dev/null 2>&1; then
-  hash -r 2>/dev/null || true
-  echo "安装成功。可直接运行：pasar easylink"
-else
-  echo "安装成功，但命令 'pasar' 当前不在 PATH。"
-  echo "Try running:"
-  echo "  /usr/local/bin/pasar easylink"
-  echo "Or ensure /usr/local/bin is in your PATH, then run: hash -r"
-fi
+hash -r 2>/dev/null || true
+echo "Installed. Run:"
+echo "  pasar easylink"
+echo "  pasar subnotify-db --test"
+echo
+echo "To enable DB-based subscription notification:"
+echo "  systemctl enable --now sub-notify-db.service"
+echo "  journalctl -u sub-notify-db.service -f"
