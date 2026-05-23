@@ -58,7 +58,8 @@ def manage_short(cfg):
             t = input('新的目标长链接或token(回车返回): ').strip()
             if not t:
                 continue
-            long = make_long_url(extract_token(t), cfg) if extract_token(t) else t
+            token = extract_token(t)
+            long = make_long_url(token, cfg) if token else t
             st, _, raw = shlink_patch(cfg, item_code(it), long)
             print(raw if st >= 300 else colors.ok('已更新'))
         elif o == '3':

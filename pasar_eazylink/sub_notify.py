@@ -3,14 +3,19 @@ import html
 import json
 import sqlite3
 import time
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .config import load_config
 from .device import parse_user_agent
 from .http_client import http_json
 from .nginx_log import find_matching_request
+
+LATEST_UPDATE_SQL = (
+    "SELECT s.id,s.user_id,s.created_at,s.user_agent,s.ip,u.username,u.status "
+    "FROM user_subscription_updates s LEFT JOIN users u ON u.id=s.user_id ORDER BY s.id DESC LIMIT 1"
+)
 
 
 def parse_db_time_utc(raw: str) -> datetime | None:
@@ -43,6 +48,19 @@ def mask_path(path: str) -> str:
     if len(token) <= 14:
         return path
     return f"/sub/{token[:8]}...{token[-6:]}"
+
+
+def is_true(value: str | None, default: bool = True) -> bool:
+    if value is None:
+        return default
+    return str(value).strip().lower() == "true"
+
+
+def to_int(value: str | None, default: int, minimum: int) -> int:
+    try:
+        return max(int(value or default), minimum)
+    except Exception:
+        return max(default, minimum)
 
 
 def send_tg(cfg: dict, text: str) -> bool:
@@ -86,6 +104,26 @@ def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) 
     )
 
 
+def fetch_latest(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    return conn.execute(LATEST_UPDATE_SQL).fetchone()
+
+
+def load_state(path: str) -> dict:
+    p = Path(path)
+    if not p.exists():
+        return {"last_id": 0, "last_sent_at": {}}
+    try:
+        return json.loads(p.read_text(errors="ignore"))
+    except Exception:
+        return {"last_id": 0, "last_sent_at": {}}
+
+
+def save_state(path: str, state: dict):
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, ensure_ascii=False))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", action="store_true")
@@ -99,47 +137,30 @@ def main(argv=None):
         print(f"failed to open db: {exc}")
         return 1
     conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT s.id,s.user_id,s.created_at,s.user_agent,s.ip,u.username,u.status "
-        "FROM user_subscription_updates s LEFT JOIN users u ON u.id=s.user_id ORDER BY s.id DESC LIMIT 1"
-    ).fetchone()
+
+    row = fetch_latest(conn)
     if not row:
         print("no subscription updates found")
         return 0
 
-    def match_nginx(target_row):
-        nginx_match = None
-        if str(cfg.get("DB_MONITOR_LOOKUP_NGINX_IP", "true")).lower() == "true":
-            db_time = parse_db_time_utc(str(target_row["created_at"] or ""))
-            if db_time:
-                nginx_match = find_matching_request(
-                    cfg.get("NGINX_ACCESS_LOG", "/var/log/nginx/access.log"),
-                    db_time,
-                    str(target_row["user_agent"] or ""),
-                    int(cfg.get("DB_MONITOR_NGINX_LOOKBACK_SECONDS", "600")),
-                    {x.strip() for x in cfg.get("DB_MONITOR_NGINX_STATUS", "200,304").split(",") if x.strip()},
-                )
-        return nginx_match
+    lookup_nginx_ip = is_true(cfg.get("DB_MONITOR_LOOKUP_NGINX_IP", "true"))
+    nginx_log = cfg.get("NGINX_ACCESS_LOG", "/var/log/nginx/access.log")
+    nginx_lookback_seconds = to_int(cfg.get("DB_MONITOR_NGINX_LOOKBACK_SECONDS", "600"), 600, 1)
+    nginx_status_set = {x.strip() for x in cfg.get("DB_MONITOR_NGINX_STATUS", "200,304").split(",") if x.strip()}
 
-    def fetch_latest():
-        return conn.execute(
-            "SELECT s.id,s.user_id,s.created_at,s.user_agent,s.ip,u.username,u.status "
-            "FROM user_subscription_updates s LEFT JOIN users u ON u.id=s.user_id ORDER BY s.id DESC LIMIT 1"
-        ).fetchone()
-
-    def load_state(path: str) -> dict:
-        p = Path(path)
-        if not p.exists():
-            return {"last_id": 0, "last_sent_at": {}}
-        try:
-            return json.loads(p.read_text(errors="ignore"))
-        except Exception:
-            return {"last_id": 0, "last_sent_at": {}}
-
-    def save_state(path: str, state: dict):
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(state, ensure_ascii=False))
+    def match_nginx(target_row: sqlite3.Row) -> dict | None:
+        if not lookup_nginx_ip:
+            return None
+        db_time = parse_db_time_utc(str(target_row["created_at"] or ""))
+        if not db_time:
+            return None
+        return find_matching_request(
+            nginx_log,
+            db_time,
+            str(target_row["user_agent"] or ""),
+            nginx_lookback_seconds,
+            nginx_status_set,
+        )
 
     text = build_message(row, cfg, match_nginx(row))
     if args.test:
@@ -149,13 +170,13 @@ def main(argv=None):
         print(text)
         return 0 if send_tg(cfg, text) else 1
 
-    poll = max(int(cfg.get("DB_MONITOR_POLL_SECONDS", "15")), 3)
-    dedup = max(int(cfg.get("DB_MONITOR_DEDUP_SECONDS", "120")), 1)
+    poll = to_int(cfg.get("DB_MONITOR_POLL_SECONDS", "15"), 15, 3)
+    dedup = to_int(cfg.get("DB_MONITOR_DEDUP_SECONDS", "120"), 120, 1)
     state_file = cfg.get("DB_MONITOR_STATE_FILE", "/var/lib/pasar-eazylink/db-monitor.state")
     state = load_state(state_file)
 
     while True:
-        latest = fetch_latest()
+        latest = fetch_latest(conn)
         if latest:
             row_id = int(latest["id"])
             key = str(latest["user_id"])
