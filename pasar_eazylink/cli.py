@@ -80,7 +80,7 @@ def manage_short(cfg):
 
 def db_menu():
     while True:
-        menu('=== 订阅监控 ===', [('1', '测试'), ('2', '发送测试'), ('3', '启动'), ('4', '停止'), ('5', '重启'), ('6', '状态'), ('7', '日志'), ('0', '返回')])
+        menu('=== 订阅监控 ===', [('1', '监控拉取测试'), ('2', 'TG通知测试'), ('3', '启动监控和TG通知'), ('4', '停止监控和TG通知'), ('5', '重启监控和TG通知'), ('6', '服务状态'), ('7', '服务日志'), ('0', '返回')])
         o = ask()
         if o in {'', '0'}:
             return
@@ -128,21 +128,16 @@ def settings(cfg):
             print(cfg)
         elif o == '4':
             while True:
-                menu('=== 订阅监控设置 ===', [('1', 'DB路径'), ('2', 'Nginx日志路径'), ('3', '轮询间隔'), ('4', '是否补全真实IP'), ('5', '显示时区'), ('6', '监控服务开关'), ('0', '返回')])
+                menu('=== 订阅监控设置 ===', [('1', 'DB路径'), ('2', 'Nginx日志路径'), ('3', '轮询间隔'), ('4', '显示时区'), ('0', '返回')])
                 x = ask()
                 if x in {'', '0'}:
                     break
-                keys = {'1': 'PASARGUARD_DB_PATH', '2': 'NGINX_ACCESS_LOG', '3': 'DB_MONITOR_POLL_SECONDS', '4': 'DB_MONITOR_LOOKUP_NGINX_IP', '5': 'DISPLAY_TIMEZONE'}
+                keys = {'1': 'PASARGUARD_DB_PATH', '2': 'NGINX_ACCESS_LOG', '3': 'DB_MONITOR_POLL_SECONDS', '4': 'DISPLAY_TIMEZONE'}
                 if x in keys:
                     v = prompt_value(keys[x], cfg.get(keys[x]))
                     if v:
                         cfg[keys[x]] = v
                         save_config(cfg)
-                elif x == '6':
-                    if yesno('启用监控服务？输入yes启用(否则禁用): '):
-                        subprocess.run(['systemctl', 'enable', '--now', 'sub-notify-db.service'], check=False)
-                    else:
-                        subprocess.run(['systemctl', 'disable', '--now', 'sub-notify-db.service'], check=False)
         elif o in groups:
             edit_group(f"=== {dict([('1','Pasar设置'),('2','Shlink设置'),('3','Telegram设置'),('5','安装维护设置')])[o]} ===", groups[o])
 
