@@ -75,20 +75,29 @@ def build_masked_request_url(path: str, scheme: str = "https", host: str = "exam
     return f"{safe_scheme}://{safe_host}{masked_path}"
 
 
+def country_code_to_flag(code: str) -> str:
+    c = (code or "").strip().upper()
+    if len(c) != 2 or not c.isalpha():
+        return ""
+    return chr(0x1F1E6 + ord(c[0]) - ord('A')) + chr(0x1F1E6 + ord(c[1]) - ord('A'))
+
+
 def lookup_ip_geo(ip: str) -> str:
     ip = (ip or "").strip()
     if not ip or ip in {"127.0.0.1", "::1"}:
-        return "本地/回环地址"
+        return ""
     code, data, _ = http_json("GET", f"https://ipwho.is/{ip}")
     if not (200 <= code < 300) or not isinstance(data, dict):
         return ""
     if data.get("success") is False:
         return ""
+    flag = country_code_to_flag(str(data.get("country_code") or ""))
     country = str(data.get("country") or "").strip()
+    country_with_flag = f"{flag} {country}".strip() if country else flag
     city = str(data.get("city") or "").strip()
     region = str(data.get("region") or "").strip()
     isp = str(data.get("connection", {}).get("isp") or "").strip()
-    parts = [x for x in [country, region, city, isp] if x]
+    parts = [x for x in [country_with_flag, region, city, isp] if x]
     return " / ".join(parts)
 
 
@@ -127,24 +136,25 @@ def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) 
     req_path = format_sub_path(str(nginx_match["path"] or "")) if nginx_match else ""
     response_size = int(nginx_match["body_bytes"]) if nginx_match else 0
     db_ip = str(row["ip"] or "").strip()
-    db_ip_tail = "（默认隐藏，没有来源IP时显示）" if db_ip in {"", "127.0.0.1", "::1"} else ""
+    show_db_ip = db_ip and db_ip not in {"127.0.0.1", "::1"}
     hwid = str(row["hwid"] or "").strip()
     hwid_line = f"\nHWID：<code>{html.escape(hwid)}</code>" if hwid and hwid.lower() not in {"none", "<none>"} else ""
+    db_ip_line = f"DB记录IP：<code>{html.escape(db_ip)}</code>{hwid_line}\n" if show_db_ip else ""
+    username = str(row["username"] or f"id={row['user_id']}")
     return (
         "#订阅拉取提醒\n"
         f"时间：{html.escape(format_display_time(str(row['created_at'] or ''), cfg.get('DISPLAY_TIMEZONE', 'local')))}\n"
         f"记录ID：{row['id']}\n"
         "---\n"
-        f"用户：{html.escape(str(row['username'] or f'id={row['user_id']}'))}\n"
+        f"用户：{html.escape(username)}\n"
         f"用户ID：{row['user_id']}\n"
         f"状态：{html.escape(render_status(str(row['status'] or '')))}\n"
         f"IP：{source_ip}{source_geo_line}\n"
-        f"DB记录IP：<code>{html.escape(db_ip)}</code>{html.escape(db_ip_tail)}{hwid_line}\n"
+        f"{db_ip_line}"
         f"UA：<code>{html.escape(ua_raw or '-')}</code>\n"
         f"路径：<code>{html.escape(req_path or '-')}</code>\n"
         f"响应大小：{response_size} B\n"
         "---\n"
-        f"设备识别：{html.escape(ua['client'])} / {html.escape(ua['device_type'])} / {html.escape(ua['os'])} / {html.escape(str(ua.get('model') or '-'))}"
     )
 
 
