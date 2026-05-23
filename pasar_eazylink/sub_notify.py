@@ -158,11 +158,15 @@ def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) 
     created_at = format_display_time(str(row["created_at"] or ""), cfg.get("DISPLAY_TIMEZONE", "local"))
 
     ua_raw = str(row["user_agent"] or "").strip()
-    ua = parse_user_agent(ua_raw)
+    parse_user_agent(ua_raw)
 
-    db_ip = str(row["ip"] or "").strip() or "<none>"
+    db_ip = str(row["ip"] or "").strip()
     source_ip_raw = str(nginx_match["remote_addr"]).strip() if nginx_match else ""
-    source_ip = source_ip_raw or "未匹配到 Nginx 真实IP"
+
+    if source_ip_raw:
+        source_ip = source_ip_raw
+    else:
+        source_ip = "未匹配到 Nginx 真实IP"
 
     source_geo = lookup_ip_geo(source_ip_raw) if source_ip_raw else ""
 
@@ -182,9 +186,11 @@ def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) 
     if source_geo:
         lines.append(f"<b>IP info：</b>{html.escape(source_geo)}")
 
+    if not source_ip_raw and db_ip:
+        lines.append(f"<b>DB记录IP：</b>{html.escape(db_ip)}")
+
     lines.extend(
         [
-            f"<b>DB记录IP：</b>{html.escape(db_ip)}",
             f"<b>UA：</b>{html.escape(ua_raw or '-')}",
             f"<b>路径：</b>{html.escape(req_path or '-')}",
             f"<b>响应大小：</b>{response_size} B",
