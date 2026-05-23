@@ -105,7 +105,7 @@ install -m 644 "$INSTALL_DIR/systemd/sub-notify-db.service" "$DB_SERVICE"
 [ -f "$CONFIG" ] || install -m 600 "$INSTALL_DIR/config/pasar-easylink.env.example" "$CONFIG"
 
 cleanup_old
-echo "订阅与短链管理 v0.9.0 安装完成"
+echo "订阅与短链管理 v1.0.0 安装完成"
 
 [ "$ENABLE_DB_MONITOR" = true ] && systemctl enable --now sub-notify-db.service || true
 [ "$DISABLE_DB_MONITOR" = true ] && systemctl disable --now sub-notify-db.service || true

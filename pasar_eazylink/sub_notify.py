@@ -1,6 +1,9 @@
 import argparse
 import html
+import json
 import sqlite3
+import time
+from pathlib import Path
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -104,20 +107,64 @@ def main(argv=None):
         print("no subscription updates found")
         return 0
 
-    nginx_match = None
-    if str(cfg.get("DB_MONITOR_LOOKUP_NGINX_IP", "true")).lower() == "true":
-        db_time = parse_db_time_utc(str(row["created_at"] or ""))
-        if db_time:
-            nginx_match = find_matching_request(
-                cfg.get("NGINX_ACCESS_LOG", "/var/log/nginx/access.log"),
-                db_time,
-                str(row["user_agent"] or ""),
-                int(cfg.get("DB_MONITOR_NGINX_LOOKBACK_SECONDS", "600")),
-                {x.strip() for x in cfg.get("DB_MONITOR_NGINX_STATUS", "200,304").split(",") if x.strip()},
-            )
+    def match_nginx(target_row):
+        nginx_match = None
+        if str(cfg.get("DB_MONITOR_LOOKUP_NGINX_IP", "true")).lower() == "true":
+            db_time = parse_db_time_utc(str(target_row["created_at"] or ""))
+            if db_time:
+                nginx_match = find_matching_request(
+                    cfg.get("NGINX_ACCESS_LOG", "/var/log/nginx/access.log"),
+                    db_time,
+                    str(target_row["user_agent"] or ""),
+                    int(cfg.get("DB_MONITOR_NGINX_LOOKBACK_SECONDS", "600")),
+                    {x.strip() for x in cfg.get("DB_MONITOR_NGINX_STATUS", "200,304").split(",") if x.strip()},
+                )
+        return nginx_match
 
-    text = build_message(row, cfg, nginx_match)
-    print(text)
+    def fetch_latest():
+        return conn.execute(
+            "SELECT s.id,s.user_id,s.created_at,s.user_agent,s.ip,u.username,u.status "
+            "FROM user_subscription_updates s LEFT JOIN users u ON u.id=s.user_id ORDER BY s.id DESC LIMIT 1"
+        ).fetchone()
+
+    def load_state(path: str) -> dict:
+        p = Path(path)
+        if not p.exists():
+            return {"last_id": 0, "last_sent_at": {}}
+        try:
+            return json.loads(p.read_text(errors="ignore"))
+        except Exception:
+            return {"last_id": 0, "last_sent_at": {}}
+
+    def save_state(path: str, state: dict):
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(state, ensure_ascii=False))
+
+    text = build_message(row, cfg, match_nginx(row))
+    if args.test:
+        print(text)
+        return 0
     if args.send_test:
+        print(text)
         return 0 if send_tg(cfg, text) else 1
-    return 0
+
+    poll = max(int(cfg.get("DB_MONITOR_POLL_SECONDS", "15")), 3)
+    dedup = max(int(cfg.get("DB_MONITOR_DEDUP_SECONDS", "120")), 1)
+    state_file = cfg.get("DB_MONITOR_STATE_FILE", "/var/lib/pasar-eazylink/db-monitor.state")
+    state = load_state(state_file)
+
+    while True:
+        latest = fetch_latest()
+        if latest:
+            row_id = int(latest["id"])
+            key = str(latest["user_id"])
+            now_ts = int(time.time())
+            last_sent = int(state.get("last_sent_at", {}).get(key, 0))
+            if row_id > int(state.get("last_id", 0)) and now_ts - last_sent >= dedup:
+                latest_text = build_message(latest, cfg, match_nginx(latest))
+                if send_tg(cfg, latest_text):
+                    state["last_id"] = row_id
+                    state.setdefault("last_sent_at", {})[key] = now_ts
+                    save_state(state_file, state)
+        time.sleep(poll)
