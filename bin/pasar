@@ -19,7 +19,6 @@ def usage() -> int:
     print("Usage:")
     print("  pasar easylink")
     print("  pasar monitor-db [--test] [--send-test]")
-    print("  pasar subnotify-db [--test] [--send-test]  # legacy alias")
     return 1
 
 
@@ -30,7 +29,7 @@ def main() -> int:
     command = sys.argv[1].strip().lower()
     if command == "easylink":
         return int(easylink_main() or 0)
-    if command in {"monitor-db", "subnotify-db", "sub-notify-db", "subnotify"}:
+    if command == "monitor-db":
         return int(monitor_db_main(sys.argv[2:]) or 0)
     return usage()
 
