@@ -1,217 +1,345 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-ENABLE_SUBNOTIFY_DB="false"
+REPO_URL="https://github.com/MittyLeeisOK/pasar-eazylink.git"
+INSTALL_DIR="/opt/pasar-eazylink"
+BIN_PASAR="/usr/local/bin/pasar"
+BIN_LOG_MONITOR="/usr/local/bin/sub-notify.sh"
+DB_SERVICE_FILE="/etc/systemd/system/sub-notify-db.service"
+LOG_SERVICE_FILE="/etc/systemd/system/sub-notify.service"
+CONFIG_FILE="/etc/pasar-easylink.env"
+LEGACY_ENV_FILE="/etc/sub-notify.env"
+MAPPING_FILE="/etc/sub-map.tsv"
+STATE_DIR="/var/lib/pasar-eazylink"
+
+ACTION="install"
+YES="false"
+INSTALL_DEPS="false"
+ENABLE_DB_MONITOR="false"
+ENABLE_LOG_MONITOR="false"
+DISABLE_DB_MONITOR="false"
+DISABLE_LOG_MONITOR="false"
+TMP_DIR=""
+
+usage() {
+  cat <<'EOF'
+Usage: bash install.sh [options]
+
+Options:
+  --install               Install files (default), keep existing config/data.
+  --upgrade               Upgrade files, keep existing config/data.
+  --uninstall             Remove program and service files, keep config/data.
+  --purge                 Remove all files, config, mapping and state.
+  --yes                   Skip interactive confirmation.
+  --install-deps          Allow apt install of git/python3/curl.
+  --enable-db-monitor     Enable and start sub-notify-db.service after install.
+  --enable-log-monitor    Enable and start sub-notify.service after install.
+  --disable-db-monitor    Disable and stop sub-notify-db.service after install.
+  --disable-log-monitor   Disable and stop sub-notify.service after install.
+  --help                  Show this help.
+
+Legacy compatibility:
+  --enable-subnotify-db   Same as --enable-db-monitor.
+EOF
+}
+
+cleanup() {
+  if [ -n "${TMP_DIR:-}" ] && [ -d "$TMP_DIR" ]; then
+    rm -rf "$TMP_DIR"
+  fi
+}
+
+trap cleanup EXIT
+
 for arg in "$@"; do
   case "$arg" in
-    --enable-subnotify-db)
-      ENABLE_SUBNOTIFY_DB="true"
+    --install)
+      ACTION="install"
+      ;;
+    --upgrade)
+      ACTION="upgrade"
+      ;;
+    --uninstall)
+      ACTION="uninstall"
+      ;;
+    --purge)
+      ACTION="purge"
+      ;;
+    --yes)
+      YES="true"
+      ;;
+    --install-deps)
+      INSTALL_DEPS="true"
+      ;;
+    --enable-db-monitor|--enable-subnotify-db)
+      ENABLE_DB_MONITOR="true"
+      ;;
+    --enable-log-monitor)
+      ENABLE_LOG_MONITOR="true"
+      ;;
+    --disable-db-monitor)
+      DISABLE_DB_MONITOR="true"
+      ;;
+    --disable-log-monitor)
+      DISABLE_LOG_MONITOR="true"
+      ;;
+    --help)
+      usage
+      exit 0
       ;;
     *)
       echo "Unknown argument: $arg" >&2
-      echo "Usage: bash install.sh [--enable-subnotify-db]" >&2
+      usage >&2
       exit 1
       ;;
   esac
 done
 
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_DIR="/opt/pasar-eazylink"
-CONFIG_FILE="/etc/pasar-easylink.env"
-EXAMPLE_CONFIG="$PROJECT_DIR/config/pasar-easylink.env.example"
-PACKAGE_DIR="$INSTALL_DIR/pasar_eazylink"
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Please run as root (or use sudo)." >&2
+  exit 1
+fi
 
-mask_value() {
-  local v="${1:-}"
-  local len="${#v}"
-
-  if [ -z "$v" ]; then
-    printf "<empty>"
-  elif [ "$len" -le 12 ]; then
-    printf "%s" "$v"
+if [ "$INSTALL_DEPS" = "true" ]; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    apt-get install -y git python3 curl
   else
-    printf "%s...%s" "${v:0:6}" "${v: -4}"
+    echo "--install-deps is only supported on apt-based systems." >&2
+    exit 1
+  fi
+fi
+
+ensure_tmp() {
+  if [ -z "${TMP_DIR:-}" ]; then
+    TMP_DIR="$(mktemp -d /tmp/pasar-eazylink-install.XXXXXX)"
   fi
 }
 
-prompt_value() {
-  local key="$1"
-  local label="$2"
-  local secret="${3:-false}"
-  local current="${!key:-}"
-  local display="$current"
-  local input=""
-
-  if [ "$secret" = "true" ]; then
-    display="$(mask_value "$current")"
-  fi
-  if [ -z "$display" ]; then
-    display="<empty>"
-  fi
-
-  if [ "$secret" = "true" ]; then
-    read -rsp "${label} [当前: ${display}]: " input || true
-    echo
-  else
-    read -rp "${label} [当前: ${display}]: " input || true
-  fi
-
-  if [ -n "$input" ]; then
-    printf -v "$key" "%s" "$input"
-  fi
+normalize_lf() {
+  local workdir="$1"
+  find "$workdir" -type f \( -name '*.sh' -o -name '*.py' -o -path '*/bin/*' -o -name '*.service' \) -print0 | xargs -0 sed -i 's/\r$//'
 }
 
-write_config() {
-  export PASAR_PANEL_HOST PASAR_PANEL_PORT PASAR_API_KEY SHLINK_API_BASE SHLINK_API_KEY
-  export SHORT_DOMAIN SUB_BASE_URL SUB_MAP_FILE TG_BOT_TOKEN TG_CHAT_ID TG_THREAD_ID
-  export PASARGUARD_DB_PATH SUB_NOTIFY_POLL_SECONDS SUB_NOTIFY_STATE_FILE SUB_NOTIFY_USER_STATUS
-  export EAZYLINK_WRITE_LEGACY_MAPPING
+merge_env_defaults() {
+  local target="$1"
+  local example="$2"
 
-  python3 - "$CONFIG_FILE" <<'PY'
-import os
+  python3 - "$target" "$example" <<'PY'
+import re
 import shlex
 import sys
 from pathlib import Path
 
-keys = [
-    "PASAR_PANEL_HOST",
-    "PASAR_PANEL_PORT",
-    "PASAR_API_KEY",
-    "SHLINK_API_BASE",
-    "SHLINK_API_KEY",
-    "SHORT_DOMAIN",
-    "SUB_BASE_URL",
-    "SUB_MAP_FILE",
-    "TG_BOT_TOKEN",
-    "TG_CHAT_ID",
-    "TG_THREAD_ID",
-    "PASARGUARD_DB_PATH",
-    "SUB_NOTIFY_POLL_SECONDS",
-    "SUB_NOTIFY_STATE_FILE",
-    "SUB_NOTIFY_USER_STATUS",
-    "EAZYLINK_WRITE_LEGACY_MAPPING",
-]
 
-path = Path(sys.argv[1])
-lines = [f"{key}={shlex.quote(os.environ.get(key, ''))}" for key in keys]
-path.write_text("\n".join(lines) + "\n")
-path.chmod(0o600)
+def parse(path: Path):
+    data = {}
+    lines = []
+    if not path.exists():
+        return data, lines
+    for raw in path.read_text(errors="ignore").splitlines():
+        lines.append(raw)
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+            continue
+        try:
+            parts = shlex.split(value)
+            data[key] = parts[0] if parts else ""
+        except Exception:
+            data[key] = value.strip("'\"")
+    return data, lines
+
+
+target = Path(sys.argv[1])
+example = Path(sys.argv[2])
+example_data, _ = parse(example)
+
+target.parent.mkdir(parents=True, exist_ok=True)
+if not target.exists():
+    lines = [f"{k}={shlex.quote(v)}" for k, v in example_data.items()]
+    target.write_text("\n".join(lines) + "\n")
+    target.chmod(0o600)
+    raise SystemExit(0)
+
+existing_data, existing_lines = parse(target)
+missing_lines = []
+for key, value in example_data.items():
+    if key not in existing_data:
+        missing_lines.append(f"{key}={shlex.quote(value)}")
+
+if missing_lines:
+    if existing_lines and existing_lines[-1].strip() != "":
+        existing_lines.append("")
+    existing_lines.extend(missing_lines)
+    target.write_text("\n".join(existing_lines) + "\n")
+
+target.chmod(0o600)
 PY
 }
 
-guide_config() {
-  local source_file="$EXAMPLE_CONFIG"
-
-  if [ -f "$CONFIG_FILE" ]; then
-    source_file="$CONFIG_FILE"
+ensure_legacy_env() {
+  if [ ! -f "$LEGACY_ENV_FILE" ]; then
+    cat > "$LEGACY_ENV_FILE" <<'EOF'
+BOT_TOKEN=''
+CHAT_ID=''
+THREAD_ID=''
+EOF
+    chmod 600 "$LEGACY_ENV_FILE"
   fi
-
-  set -a
-  # shellcheck disable=SC1090
-  . "$source_file"
-  set +a
-
-  : "${PASAR_PANEL_HOST:=https://127.0.0.1}"
-  : "${PASAR_PANEL_PORT:=8000}"
-  : "${PASAR_API_KEY:=}"
-  : "${SHORT_DOMAIN:=https://go.mitty.space}"
-  : "${SHLINK_API_BASE:=${SHORT_DOMAIN%/}/rest/v3}"
-  : "${SHLINK_API_KEY:=}"
-  : "${SUB_BASE_URL:=https://pasar.mitty.space/sub}"
-  : "${SUB_MAP_FILE:=/etc/sub-map.tsv}"
-  : "${TG_BOT_TOKEN:=}"
-  : "${TG_CHAT_ID:=}"
-  : "${TG_THREAD_ID:=}"
-  : "${PASARGUARD_DB_PATH:=/var/lib/pasarguard/db.sqlite3}"
-  : "${SUB_NOTIFY_POLL_SECONDS:=15}"
-  : "${SUB_NOTIFY_STATE_FILE:=/var/lib/pasar-eazylink/sub-notify.state}"
-  : "${SUB_NOTIFY_USER_STATUS:=}"
-  : "${EAZYLINK_WRITE_LEGACY_MAPPING:=false}"
-  local original_short_domain="$SHORT_DOMAIN"
-  local original_shlink_base="$SHLINK_API_BASE"
-
-  echo
-  echo "=== Eazy Link 配置引导 ==="
-  prompt_value PASAR_PANEL_HOST "Pasar Panel 地址"
-  prompt_value PASAR_PANEL_PORT "Pasar Panel 端口"
-  prompt_value PASAR_API_KEY "Pasar Access Token（可留空，后续可登录获取）" true
-  prompt_value SHORT_DOMAIN "短链域名"
-  PASAR_PANEL_HOST="${PASAR_PANEL_HOST%/}"
-  SHORT_DOMAIN="${SHORT_DOMAIN%/}"
-  if [ "$SHORT_DOMAIN" != "$original_short_domain" ] && [ "$original_shlink_base" = "${original_short_domain%/}/rest/v3" ]; then
-    SHLINK_API_BASE="${SHORT_DOMAIN%/}/rest/v3"
-  fi
-  SHLINK_API_BASE="${SHLINK_API_BASE%/}"
-  prompt_value SHLINK_API_BASE "Shlink API Base"
-  SHLINK_API_BASE="${SHLINK_API_BASE%/}"
-  prompt_value SHLINK_API_KEY "Shlink API Key" true
-  prompt_value SUB_BASE_URL "订阅基础地址"
-  SUB_BASE_URL="${SUB_BASE_URL%/}"
-  prompt_value SUB_MAP_FILE "Mapping 表路径"
-  prompt_value TG_BOT_TOKEN "TG Bot Token" true
-  prompt_value TG_CHAT_ID "TG Chat ID" true
-  prompt_value TG_THREAD_ID "TG Thread ID（可留空）"
-  prompt_value PASARGUARD_DB_PATH "PasarGuard SQLite 路径"
-  prompt_value SUB_NOTIFY_POLL_SECONDS "提醒轮询间隔秒数"
-  prompt_value SUB_NOTIFY_STATE_FILE "提醒状态文件路径"
-  prompt_value SUB_NOTIFY_USER_STATUS "提醒用户状态过滤（逗号分隔，可留空）"
-  prompt_value EAZYLINK_WRITE_LEGACY_MAPPING "Legacy Mapping 自动写入（true/false）"
-
-  write_config
-  echo "配置已保存到 ${CONFIG_FILE}"
 }
 
-install -d "$INSTALL_DIR"
-if [ "$PROJECT_DIR" != "$INSTALL_DIR" ]; then
-  rm -rf "$PACKAGE_DIR"
-  cp -a "$PROJECT_DIR/pasar_eazylink" "$INSTALL_DIR/"
-else
-  echo "Source directory is already $INSTALL_DIR, skip copying package files"
-fi
-install -m 755 "$PROJECT_DIR/bin/pasar" /usr/local/bin/pasar
-install -m 755 "$PROJECT_DIR/bin/sub-notify" /usr/local/bin/sub-notify
+remove_runtime_files() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now sub-notify-db.service >/dev/null 2>&1 || true
+    systemctl disable --now sub-notify.service >/dev/null 2>&1 || true
+  fi
 
-created_config=""
-if [ ! -f "$CONFIG_FILE" ]; then
-  install -m 600 "$EXAMPLE_CONFIG" "$CONFIG_FILE"
-  echo "Created ${CONFIG_FILE}"
-  created_config="yes"
-else
-  echo "${CONFIG_FILE} already exists, skipped"
-fi
+  rm -f "$BIN_PASAR"
+  rm -f "$BIN_LOG_MONITOR"
+  rm -f /usr/local/bin/sub-notify
+  rm -f "$DB_SERVICE_FILE"
+  rm -f "$LOG_SERVICE_FILE"
+  rm -rf "$INSTALL_DIR"
 
-if [ -t 0 ]; then
-  if [ "$created_config" = "yes" ]; then
-    guide_config
-  else
-    read -rp "检测到已有配置，是否现在引导填写？[y/N]: " edit_config
-    if [[ "$edit_config" =~ ^[Yy]$ ]]; then
-      guide_config
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
+}
+
+run_uninstall() {
+  remove_runtime_files
+
+  echo "Config kept:"
+  echo "  /etc/pasar-easylink.env"
+  echo "  /etc/sub-notify.env"
+  echo "  /etc/sub-map.tsv"
+  echo "  /var/lib/pasar-eazylink"
+  echo
+  echo "To remove all configs and data, run:"
+  echo "  bash install.sh --purge --yes"
+}
+
+run_purge() {
+  if [ "$YES" != "true" ]; then
+    echo "This will remove all configs, mappings and state files. Type YES to continue:"
+    read -r confirm
+    if [ "$confirm" != "YES" ]; then
+      echo "Cancelled."
+      exit 1
     fi
   fi
-else
-  echo "非交互环境，跳过配置引导。请手动编辑 ${CONFIG_FILE}"
-fi
 
-python3 -m py_compile "$PACKAGE_DIR/"*.py
-python3 -m py_compile /usr/local/bin/pasar
-python3 -m py_compile /usr/local/bin/sub-notify
-echo "安装检查通过：脚本已编译。"
+  remove_runtime_files
+  rm -f "$CONFIG_FILE"
+  rm -f "$LEGACY_ENV_FILE"
+  rm -f "$MAPPING_FILE"
+  rm -rf "$STATE_DIR"
 
-if command -v systemctl >/dev/null 2>&1; then
-  install -d /etc/systemd/system
-  install -m 644 "$PROJECT_DIR/systemd/sub-notify-db.service" /etc/systemd/system/sub-notify-db.service
-  systemctl daemon-reload >/dev/null 2>&1 || true
-  if [ "$ENABLE_SUBNOTIFY_DB" = "true" ]; then
-    systemctl enable --now sub-notify-db.service
+  echo "Purge completed."
+}
+
+resolve_source_dir() {
+  local script_path script_dir
+  script_path="${BASH_SOURCE[0]:-$0}"
+  script_dir="$(cd "$(dirname "$script_path")" && pwd)"
+
+  if [ -d "$script_dir/pasar_eazylink" ] && [ -d "$script_dir/bin" ] && [ -d "$script_dir/systemd" ]; then
+    echo "$script_dir"
+    return
   fi
-fi
 
-hash -r 2>/dev/null || true
-echo "Installed. Run:"
-echo "  pasar easylink"
-echo "  pasar subnotify-db --test"
-echo
-echo "To enable DB-based subscription notification:"
-echo "  systemctl enable --now sub-notify-db.service"
-echo "  journalctl -u sub-notify-db.service -f"
+  if ! command -v git >/dev/null 2>&1; then
+    echo "git is required. Run with --install-deps to install dependencies." >&2
+    exit 1
+  fi
+
+  ensure_tmp
+  local repo_dir="$TMP_DIR/repo"
+  git clone "$REPO_URL" "$repo_dir"
+  echo "$repo_dir"
+}
+
+install_files() {
+  local source_dir="$1"
+  local stage_dir=""
+
+  normalize_lf "$source_dir"
+
+  if [ "$source_dir" != "$INSTALL_DIR" ]; then
+    ensure_tmp
+    stage_dir="$TMP_DIR/stage"
+    mkdir -p "$stage_dir"
+    cp -a "$source_dir"/. "$stage_dir"/
+    rm -rf "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+    cp -a "$stage_dir"/. "$INSTALL_DIR"/
+  else
+    echo "Source directory is already install directory, skip self-copy"
+  fi
+
+  normalize_lf "$INSTALL_DIR"
+
+  install -d /usr/local/bin
+  install -m 755 "$INSTALL_DIR/bin/pasar" "$BIN_PASAR"
+  install -m 755 "$INSTALL_DIR/bin/sub-notify.sh" "$BIN_LOG_MONITOR"
+
+  install -d /etc/systemd/system
+  install -m 644 "$INSTALL_DIR/systemd/sub-notify-db.service" "$DB_SERVICE_FILE"
+  install -m 644 "$INSTALL_DIR/systemd/sub-notify.service" "$LOG_SERVICE_FILE"
+
+  mkdir -p "$STATE_DIR"
+
+  merge_env_defaults "$CONFIG_FILE" "$INSTALL_DIR/config/pasar-easylink.env.example"
+  ensure_legacy_env
+
+  if [ ! -f "$MAPPING_FILE" ]; then
+    touch "$MAPPING_FILE"
+    chmod 600 "$MAPPING_FILE"
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+
+    if [ "$ENABLE_DB_MONITOR" = "true" ]; then
+      systemctl enable --now sub-notify-db.service
+    fi
+    if [ "$ENABLE_LOG_MONITOR" = "true" ]; then
+      systemctl enable --now sub-notify.service
+    fi
+    if [ "$DISABLE_DB_MONITOR" = "true" ]; then
+      systemctl disable --now sub-notify-db.service
+    fi
+    if [ "$DISABLE_LOG_MONITOR" = "true" ]; then
+      systemctl disable --now sub-notify.service
+    fi
+  fi
+
+  python3 -m py_compile "$INSTALL_DIR/pasar_eazylink"/*.py "$BIN_PASAR"
+
+  hash -r 2>/dev/null || true
+  echo "Installed. Run:"
+  echo "  pasar easylink"
+  echo "  pasar monitor-db --test"
+}
+
+case "$ACTION" in
+  uninstall)
+    run_uninstall
+    ;;
+  purge)
+    run_purge
+    ;;
+  install|upgrade)
+    SOURCE_DIR="$(resolve_source_dir)"
+    install_files "$SOURCE_DIR"
+    ;;
+  *)
+    echo "Unsupported action: $ACTION" >&2
+    exit 1
+    ;;
+esac

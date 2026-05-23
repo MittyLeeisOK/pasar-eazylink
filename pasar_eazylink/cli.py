@@ -1,13 +1,12 @@
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from . import __version__
-from .config import load_config, save_config
-from .mapping import add_token, delete_user, show_mapping
+from .config import CONFIG_FILE, TG_ENV, load_config, save_config
+from .mapping import add_token, delete_token, delete_user, map_path, show_mapping
 from .pasar_api import create_user_from_template, list_templates, login as pasar_login, test_api as test_pasar
 from .shlink_api import (
     delete as shlink_delete,
@@ -31,7 +30,6 @@ from .utils import (
     validate_slug,
     validate_username,
 )
-
 
 GREEN = "\033[92m"
 RESET = "\033[0m"
@@ -82,18 +80,6 @@ def config_bool(value: str) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def legacy_mapping_enabled(cfg: dict) -> bool:
-    return config_bool(cfg.get("EAZYLINK_WRITE_LEGACY_MAPPING", "false"))
-
-
-def maybe_write_legacy_mapping(cfg: dict, token: str, username: str) -> bool:
-    if not legacy_mapping_enabled(cfg):
-        print("Legacy Mapping 写入已关闭，跳过 /etc/sub-map.tsv。")
-        return False
-    add_token(cfg, token, username)
-    return True
-
-
 def run_command(cmd: list[str]):
     print()
     print("$ " + " ".join(cmd))
@@ -105,87 +91,17 @@ def run_command(cmd: list[str]):
         print(f"命令执行失败：{exc}")
 
 
-def run_upgrade():
-    print()
-    confirm = input("确认升级？输入 yes 继续: ").strip().lower()
-    if confirm != "yes":
-        print("已取消。")
-        return
-
-    script_candidates = [
-        Path("/opt/pasar-eazylink/install.sh"),
-        Path(__file__).resolve().parent.parent / "install.sh",
-    ]
-    script = next((p for p in script_candidates if p.exists()), None)
-    if not script:
-        print("未找到 install.sh，无法自动升级。")
-        print("请手动执行安装脚本完成升级。")
-        return
-
-    print(f"开始执行升级脚本：{script}")
-    try:
-        result = subprocess.run(["bash", str(script)], check=False)
-    except Exception as exc:
-        print(f"升级执行失败：{exc}")
-        return
-
-    if result.returncode == 0:
-        print("升级完成。")
-    else:
-        print(f"升级失败，退出码：{result.returncode}")
-        print("请确认当前用户权限后重试。")
+def save_bool(cfg: dict, key: str, current: str, label: str):
+    value = input(f"{label}（true/false） [当前: {current}]: ").strip().lower()
+    if value in {"true", "false"}:
+        cfg[key] = value
+        save_config(cfg)
+    elif value:
+        print("请输入 true 或 false。")
 
 
-def remove_path(path: Path, label: str):
-    if not path.exists() and not path.is_symlink():
-        print(f"{label} 不存在，跳过。")
-        return
-    try:
-        if path.is_symlink() or path.is_file():
-            path.unlink()
-        else:
-            shutil.rmtree(path)
-        print(f"{label} 已删除：{path}")
-    except Exception as exc:
-        print(f"{label} 删除失败：{exc}")
-
-
-def run_uninstall(cfg: dict):
-    print()
-    print("卸载将删除程序文件。")
-    confirm = input("输入 uninstall 确认卸载: ").strip().lower()
-    if confirm != "uninstall":
-        print("已取消。")
-        return
-
-    remove_path(Path("/usr/local/bin/pasar"), "命令入口")
-    remove_path(Path("/usr/local/bin/sub-notify"), "提醒命令入口")
-    remove_path(Path("/etc/systemd/system/sub-notify.service"), "提醒服务文件")
-    remove_path(Path("/etc/systemd/system/sub-notify-db.service"), "DB 提醒服务文件")
-    remove_path(Path("/opt/pasar-eazylink"), "安装目录")
-    os.system("systemctl daemon-reload >/dev/null 2>&1")
-
-    while True:
-        extra = input("是否同时删除配置与映射文件？输入 yes 继续，输入 no 跳过: ").strip().lower()
-        if extra == "yes":
-            remove_path(Path("/etc/pasar-easylink.env"), "主配置文件")
-            remove_path(Path("/etc/sub-notify.env"), "通知配置文件")
-            map_path = Path(cfg.get("SUB_MAP_FILE", ""))
-            if str(map_path).strip():
-                remove_path(map_path, "映射文件")
-            break
-        if extra == "no":
-            print("已跳过删除配置与映射文件。")
-            break
-        print("输入无效，请输入 yes 或 no。")
-
-    print("卸载流程已结束。")
-
-
-def create_eazy_link(cfg: dict):
-    print()
-    print("=== 新增 Eazy Link ===")
-
+def create_link(cfg: dict):
+    print("\n=== 新增链接 ===")
     templates = list_templates(cfg)
     if templates is None:
         return
@@ -212,25 +128,23 @@ def create_eazy_link(cfg: dict):
         print(f"无法从订阅链接提取 token：{long_url}")
         return
 
-    maybe_write_legacy_mapping(cfg, token, username)
+    if config_bool(cfg.get("EAZYLINK_WRITE_LEGACY_MAPPING", "false")):
+        add_token(cfg, token, username)
+    else:
+        print("Legacy Mapping 写入已关闭。")
 
     if not shlink_upsert(cfg, slug, long_url):
         return
 
-    print()
-    print("=== 新增完成 ===")
+    print("\n=== 新增完成 ===")
     print(f"用户：{username}")
     print(f"短链接：{cfg['SHORT_DOMAIN'].rstrip('/')}/{slug}")
     print(f"长链接：{long_url}")
     print(f"token：{short_token(token)}")
 
-    if legacy_mapping_enabled(cfg):
-        show_mapping(cfg, username)
 
-
-def update_eazy_link(cfg: dict):
-    print()
-    print("=== 更新 Eazy Link ===")
+def update_link(cfg: dict):
+    print("\n=== 更新链接 ===")
 
     username = input_nonempty("用户名: ")
     if not validate_username(username):
@@ -244,10 +158,12 @@ def update_eazy_link(cfg: dict):
         return
 
     long_url = make_long_url(token, cfg)
-    maybe_write_legacy_mapping(cfg, token, username)
 
-    print()
-    print("选择要覆盖的短链接。")
+    append_mapping = input("是否追加 token 到 mapping？输入 yes 继续: ").strip().lower()
+    if append_mapping == "yes":
+        add_token(cfg, token, username)
+
+    print("\n选择要覆盖的短链接。")
     matches = show_shortlinks(cfg, username)
 
     selected = None
@@ -258,7 +174,7 @@ def update_eazy_link(cfg: dict):
 
     if selected:
         code = item_code(selected)
-        status, data, raw = shlink_patch(cfg, code, long_url)
+        status, _data, raw = shlink_patch(cfg, code, long_url)
 
         if 200 <= status < 300:
             short_url = item_short_url(selected, cfg)
@@ -273,21 +189,15 @@ def update_eazy_link(cfg: dict):
             return
         short_url = f"{cfg['SHORT_DOMAIN'].rstrip('/')}/{slug}"
 
-    print()
-    print("=== 更新完成 ===")
+    print("\n=== 更新完成 ===")
     print(f"用户：{username}")
     print(f"短链接：{short_url}")
     print(f"长链接：{long_url}")
     print(f"token：{short_token(token)}")
 
-    if legacy_mapping_enabled(cfg):
-        show_mapping(cfg, username)
 
-
-def delete_eazy_link(cfg: dict):
-    print()
-    print("=== 删除 Eazy Link ===")
-
+def delete_link(cfg: dict):
+    print("\n=== 删除链接 ===")
     username = input_nonempty("用户名: ")
     if not validate_username(username):
         print("用户名只能包含字母、数字、点、下划线、短横线，长度 3-64。")
@@ -296,18 +206,11 @@ def delete_eazy_link(cfg: dict):
     show_mapping(cfg, username)
     matches = show_shortlinks(cfg, username)
 
-    confirm = input("确认删除该用户的所有 mapping？输入 yes 继续: ").strip().lower()
-    if confirm != "yes":
-        print("已取消。")
-        return
-
-    delete_user(cfg, username)
-
     if matches:
-        confirm2 = input("是否同时删除上面匹配到的所有短链接？输入 yes 继续: ").strip().lower()
-        if confirm2 == "yes":
+        confirm_short = input("是否删除匹配的短链接？输入 yes 继续: ").strip().lower()
+        if confirm_short == "yes":
             for item in matches:
-                status, data, raw = shlink_delete(cfg, item_code(item))
+                status, _data, raw = shlink_delete(cfg, item_code(item))
                 if status in (200, 202, 204, 404):
                     print(f"已删除/跳过：{item_short_url(item, cfg)}")
                 else:
@@ -315,45 +218,16 @@ def delete_eazy_link(cfg: dict):
                     if raw:
                         print(raw)
 
-    print("删除完成。说明：这里不删除 PasarGuard 面板中的真实用户。")
+    confirm_map = input("是否删除该用户 legacy mapping？输入 yes 继续: ").strip().lower()
+    if confirm_map == "yes":
+        delete_user(cfg, username)
+
+    print("删除完成。说明：默认不删除 PasarGuard 面板用户。")
 
 
-def view_shortlinks(cfg: dict):
+def view_links(cfg: dict):
     query = input("关键词过滤，留空查看全部: ").strip()
     show_shortlinks(cfg, query)
-
-
-def legacy_mapping_menu(cfg: dict):
-    items = [
-        ("1", "查看 user mapping"),
-        ("2", "按用户删除 mapping"),
-        ("3", "手动新增 token -> 用户 mapping"),
-        ("0", "返回"),
-    ]
-    while True:
-        menu_block("Legacy Mapping 工具", items)
-        opt = prompt_menu()
-
-        if opt == "1":
-            query = input("关键词过滤，留空查看全部: ").strip()
-            show_mapping(cfg, query)
-        elif opt == "2":
-            username = input_nonempty("用户名: ")
-            if not validate_username(username):
-                print("用户名只能包含字母、数字、点、下划线、短横线，长度 3-64。")
-                continue
-            delete_user(cfg, username)
-        elif opt == "3":
-            token = input_nonempty("token: ")
-            username = input_nonempty("用户名: ")
-            if not validate_username(username):
-                print("用户名只能包含字母、数字、点、下划线、短横线，长度 3-64。")
-                continue
-            add_token(cfg, token, username)
-        elif opt == "0":
-            return
-        else:
-            print("无效选项，请重试。")
 
 
 def manage_shortlink_modify(cfg: dict):
@@ -364,8 +238,7 @@ def manage_shortlink_modify(cfg: dict):
     old_code = item_code(item)
     old_long = item_long_url(item)
 
-    print()
-    print(f"当前 shortCode：{old_code}")
+    print(f"\n当前 shortCode：{old_code}")
     print(f"当前短链接：{item_short_url(item, cfg)}")
     print(f"当前目标：{old_long}")
 
@@ -394,26 +267,21 @@ def manage_shortlink_modify(cfg: dict):
         return
 
     if new_slug != old_code:
-        print("将创建新短链并删除旧短链。")
-
         if not shlink_upsert(cfg, new_slug, new_long):
             return
 
-        status, data, raw = shlink_delete(cfg, old_code)
+        status, _data, raw = shlink_delete(cfg, old_code)
         if status not in (200, 202, 204, 404):
             print(f"旧短链删除失败，HTTP {status}")
             print(raw)
             return
-
         final_short = f"{cfg['SHORT_DOMAIN'].rstrip('/')}/{new_slug}"
     else:
-        status, data, raw = shlink_patch(cfg, old_code, new_long)
-
+        status, _data, raw = shlink_patch(cfg, old_code, new_long)
         if not (200 <= status < 300):
             print(f"短链修改失败，HTTP {status}")
             print(raw)
             return
-
         final_short = item_short_url(item, cfg)
 
     if token:
@@ -424,8 +292,7 @@ def manage_shortlink_modify(cfg: dict):
             else:
                 print("用户名格式无效，已跳过 mapping 写入。")
 
-    print()
-    print("=== 修改完成 ===")
+    print("\n=== 修改完成 ===")
     print(f"短链接：{final_short}")
     print(f"目标：{new_long}")
 
@@ -439,8 +306,7 @@ def manage_shortlink_delete(cfg: dict):
     short_url = item_short_url(item, cfg)
     long_url = item_long_url(item)
 
-    print()
-    print(f"准备删除：{short_url}")
+    print(f"\n准备删除：{short_url}")
     print(f"目标：{long_url}")
 
     confirm = input("确认删除这个短链接？输入 yes 继续: ").strip().lower()
@@ -448,7 +314,7 @@ def manage_shortlink_delete(cfg: dict):
         print("已取消。")
         return
 
-    status, data, raw = shlink_delete(cfg, code)
+    status, _data, raw = shlink_delete(cfg, code)
     if status in (200, 202, 204, 404):
         print("短链接已删除。")
     else:
@@ -458,13 +324,13 @@ def manage_shortlink_delete(cfg: dict):
 
 def shortlink_manage_menu(cfg: dict):
     items = [
-        ("1", "修改某个短链接"),
-        ("2", "删除某个短链接"),
-        ("3", "查看短链接列表"),
+        ("1", "修改"),
+        ("2", "删除"),
+        ("3", "列表"),
         ("0", "返回"),
     ]
     while True:
-        menu_block("短链接管理", items)
+        menu_block("=== 管理短链 ===", items)
         opt = prompt_menu()
 
         if opt == "1":
@@ -480,32 +346,343 @@ def shortlink_manage_menu(cfg: dict):
             print("无效选项，请重试。")
 
 
-def subnotify_menu():
+def mapping_menu(cfg: dict):
     items = [
-        ("1", "测试最近一条订阅记录，不发送 TG"),
-        ("2", "发送最近一条订阅记录作为测试"),
-        ("3", "查看 sub-notify-db.service 状态"),
-        ("4", "启动 sub-notify-db.service"),
-        ("5", "停止 sub-notify-db.service"),
-        ("6", "查看最近日志"),
+        ("1", "查看"),
+        ("2", "添加"),
+        ("3", "删除用户"),
+        ("4", "删除Token"),
         ("0", "返回"),
     ]
     while True:
-        menu_block("DB 订阅提醒", items)
+        menu_block("=== Mapping ===", items)
         opt = prompt_menu()
 
         if opt == "1":
-            run_command(["pasar", "subnotify-db", "--test"])
+            query = input("关键词过滤，留空查看全部: ").strip()
+            show_mapping(cfg, query)
         elif opt == "2":
-            run_command(["pasar", "subnotify-db", "--send-test"])
+            token = input_nonempty("token: ")
+            username = input_nonempty("用户名: ")
+            if not validate_username(username):
+                print("用户名格式无效。")
+                continue
+            add_token(cfg, token, username)
         elif opt == "3":
-            run_command(["systemctl", "status", "sub-notify-db.service", "--no-pager", "-l"])
+            username = input_nonempty("用户名: ")
+            if not validate_username(username):
+                print("用户名格式无效。")
+                continue
+            delete_user(cfg, username)
         elif opt == "4":
+            token = input_nonempty("token: ")
+            delete_token(cfg, token)
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
+def db_monitor_menu():
+    items = [
+        ("1", "测试"),
+        ("2", "发送测试"),
+        ("3", "启动"),
+        ("4", "停止"),
+        ("5", "重启"),
+        ("6", "状态"),
+        ("7", "日志"),
+        ("0", "返回"),
+    ]
+    while True:
+        menu_block("=== DB监控 ===", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            run_command(["pasar", "monitor-db", "--test"])
+        elif opt == "2":
+            run_command(["pasar", "monitor-db", "--send-test"])
+        elif opt == "3":
             run_command(["systemctl", "enable", "--now", "sub-notify-db.service"])
-        elif opt == "5":
+        elif opt == "4":
             run_command(["systemctl", "disable", "--now", "sub-notify-db.service"])
+        elif opt == "5":
+            run_command(["systemctl", "restart", "sub-notify-db.service"])
         elif opt == "6":
+            run_command(["systemctl", "status", "sub-notify-db.service", "--no-pager", "-l"])
+        elif opt == "7":
             run_command(["journalctl", "-u", "sub-notify-db.service", "-n", "80", "--no-pager"])
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
+def log_monitor_menu(cfg: dict):
+    items = [
+        ("1", "启动"),
+        ("2", "停止"),
+        ("3", "重启"),
+        ("4", "状态"),
+        ("5", "日志"),
+        ("6", "Mapping"),
+        ("7", "检查配置"),
+        ("0", "返回"),
+    ]
+    while True:
+        cfg = load_config()
+        menu_block("=== 日志监控 ===", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            run_command(["systemctl", "enable", "--now", "sub-notify.service"])
+        elif opt == "2":
+            run_command(["systemctl", "disable", "--now", "sub-notify.service"])
+        elif opt == "3":
+            run_command(["systemctl", "restart", "sub-notify.service"])
+        elif opt == "4":
+            run_command(["systemctl", "status", "sub-notify.service", "--no-pager", "-l"])
+        elif opt == "5":
+            run_command(["journalctl", "-u", "sub-notify.service", "-n", "80", "--no-pager"])
+        elif opt == "6":
+            mapping_menu(cfg)
+        elif opt == "7":
+            run_command(["/usr/local/bin/sub-notify.sh", "--check-config"])
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
+def monitor_menu(cfg: dict):
+    items = [
+        ("1", "DB监控"),
+        ("2", "日志监控"),
+        ("3", "状态总览"),
+        ("4", "停止全部"),
+        ("0", "返回"),
+    ]
+    while True:
+        menu_block("=== 订阅监控 ===", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            db_monitor_menu()
+        elif opt == "2":
+            log_monitor_menu(cfg)
+        elif opt == "3":
+            run_command(["systemctl", "status", "sub-notify-db.service", "sub-notify.service", "--no-pager", "-l"])
+        elif opt == "4":
+            run_command(["systemctl", "disable", "--now", "sub-notify-db.service", "sub-notify.service"])
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
+def show_config(cfg: dict):
+    print("\n=== 当前配置 ===")
+    print(f"Pasar 面板：{cfg['PASAR_PANEL_HOST']}:{cfg['PASAR_PANEL_PORT']}")
+    print(f"Shlink API：{cfg['SHLINK_API_BASE']}")
+    print(f"短链域名：{cfg['SHORT_DOMAIN']}")
+    print(f"订阅地址：{cfg['SUB_BASE_URL']}")
+    print(f"DB 路径：{cfg['PASARGUARD_DB_PATH']}")
+    print(f"Nginx 日志：{cfg['NGINX_ACCESS_LOG']}")
+    print(f"DB轮询：{cfg['DB_MONITOR_POLL_SECONDS']}")
+    print(f"去重时间：{cfg['DB_MONITOR_DEDUP_SECONDS']}")
+    print(f"补全真实IP：{cfg['DB_MONITOR_LOOKUP_NGINX_IP']}")
+    print(f"Legacy Mapping 写入：{cfg['EAZYLINK_WRITE_LEGACY_MAPPING']}")
+    print(f"TG Bot Token：{mask(cfg['TG_BOT_TOKEN'])}")
+    print(f"TG Chat ID：{mask(cfg['TG_CHAT_ID'])}")
+    print(f"TG Thread ID：{mask(cfg['TG_THREAD_ID'])}")
+
+
+def settings_pasar(cfg: dict):
+    items = [
+        ("1", "面板地址"),
+        ("2", "面板端口"),
+        ("3", "登录/更新Token"),
+        ("4", "测试API"),
+        ("0", "返回"),
+    ]
+    while True:
+        cfg = load_config()
+        menu_block("=== Pasar ===", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            value = input(f"面板地址 [当前: {cfg['PASAR_PANEL_HOST']}]: ").strip()
+            if value:
+                cfg["PASAR_PANEL_HOST"] = value.rstrip("/")
+                save_config(cfg)
+        elif opt == "2":
+            value = input(f"面板端口 [当前: {cfg['PASAR_PANEL_PORT']}]: ").strip()
+            if value:
+                cfg["PASAR_PANEL_PORT"] = value
+                save_config(cfg)
+        elif opt == "3":
+            pasar_login(cfg)
+        elif opt == "4":
+            test_pasar(cfg)
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
+def settings_shlink(cfg: dict):
+    items = [
+        ("1", "API地址"),
+        ("2", "API Key"),
+        ("3", "短链域名"),
+        ("4", "测试API"),
+        ("0", "返回"),
+    ]
+    while True:
+        cfg = load_config()
+        menu_block("=== Shlink ===", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            value = input(f"API地址 [当前: {cfg['SHLINK_API_BASE']}]: ").strip()
+            if value:
+                cfg["SHLINK_API_BASE"] = value.rstrip("/")
+                save_config(cfg)
+        elif opt == "2":
+            value = input("API Key: ").strip()
+            if value:
+                cfg["SHLINK_API_KEY"] = value
+                save_config(cfg)
+        elif opt == "3":
+            value = input(f"短链域名 [当前: {cfg['SHORT_DOMAIN']}]: ").strip()
+            if value:
+                cfg["SHORT_DOMAIN"] = value.rstrip("/")
+                if cfg.get("SHLINK_API_BASE", "").endswith("/rest/v3"):
+                    cfg["SHLINK_API_BASE"] = f"{value.rstrip('/')}/rest/v3"
+                save_config(cfg)
+        elif opt == "4":
+            test_shlink(cfg)
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
+def settings_telegram(cfg: dict):
+    items = [
+        ("1", "Bot Token"),
+        ("2", "Chat ID"),
+        ("3", "Thread ID"),
+        ("4", "发送测试"),
+        ("0", "返回"),
+    ]
+    while True:
+        cfg = load_config()
+        menu_block("=== Telegram ===", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            value = input("Bot Token: ").strip()
+            if value:
+                cfg["TG_BOT_TOKEN"] = value
+                save_config(cfg)
+                sync_tg_env(cfg)
+        elif opt == "2":
+            value = input("Chat ID: ").strip()
+            if value:
+                cfg["TG_CHAT_ID"] = value
+                save_config(cfg)
+                sync_tg_env(cfg)
+        elif opt == "3":
+            value = input("Thread ID，可留空: ").strip()
+            cfg["TG_THREAD_ID"] = value
+            save_config(cfg)
+            sync_tg_env(cfg)
+        elif opt == "4":
+            test_tg(cfg)
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
+def settings_monitor(cfg: dict):
+    items = [
+        ("1", "DB路径"),
+        ("2", "Nginx日志路径"),
+        ("3", "轮询间隔"),
+        ("4", "去重时间"),
+        ("5", "是否补全真实IP"),
+        ("6", "是否写Legacy Mapping"),
+        ("0", "返回"),
+    ]
+    while True:
+        cfg = load_config()
+        menu_block("=== 订阅监控 ===", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            value = input(f"DB路径 [当前: {cfg['PASARGUARD_DB_PATH']}]: ").strip()
+            if value:
+                cfg["PASARGUARD_DB_PATH"] = value
+                save_config(cfg)
+        elif opt == "2":
+            value = input(f"Nginx日志路径 [当前: {cfg['NGINX_ACCESS_LOG']}]: ").strip()
+            if value:
+                cfg["NGINX_ACCESS_LOG"] = value
+                cfg["LOG_MONITOR_ACCESS_LOG"] = value
+                save_config(cfg)
+        elif opt == "3":
+            value = input(f"轮询间隔秒数 [当前: {cfg['DB_MONITOR_POLL_SECONDS']}]: ").strip()
+            if value:
+                cfg["DB_MONITOR_POLL_SECONDS"] = value
+                cfg["SUB_NOTIFY_POLL_SECONDS"] = value
+                save_config(cfg)
+        elif opt == "4":
+            value = input(f"去重时间秒数 [当前: {cfg['DB_MONITOR_DEDUP_SECONDS']}]: ").strip()
+            if value:
+                cfg["DB_MONITOR_DEDUP_SECONDS"] = value
+                save_config(cfg)
+        elif opt == "5":
+            save_bool(cfg, "DB_MONITOR_LOOKUP_NGINX_IP", cfg["DB_MONITOR_LOOKUP_NGINX_IP"], "是否补全真实IP")
+        elif opt == "6":
+            save_bool(
+                cfg,
+                "EAZYLINK_WRITE_LEGACY_MAPPING",
+                cfg["EAZYLINK_WRITE_LEGACY_MAPPING"],
+                "是否写Legacy Mapping",
+            )
+        elif opt == "0":
+            return
+        else:
+            print("无效选项，请重试。")
+
+
+def settings_paths(cfg: dict):
+    items = [
+        ("1", "配置文件路径"),
+        ("2", "Mapping路径"),
+        ("3", "状态文件路径"),
+        ("4", "查看安装路径"),
+        ("0", "返回"),
+    ]
+    while True:
+        cfg = load_config()
+        menu_block("=== 路径 ===", items)
+        opt = prompt_menu()
+
+        if opt == "1":
+            print(f"主配置: {CONFIG_FILE}")
+            print(f"兼容配置: {TG_ENV}")
+        elif opt == "2":
+            print(f"Mapping: {map_path(cfg)}")
+        elif opt == "3":
+            print(f"DB状态: {cfg['DB_MONITOR_STATE_FILE']}")
+            print("日志状态: /var/lib/pasar-eazylink/log-monitor.state")
+        elif opt == "4":
+            print("安装路径: /opt/pasar-eazylink")
+            print("命令路径: /usr/local/bin/pasar")
+            print("日志监控脚本: /usr/local/bin/sub-notify.sh")
         elif opt == "0":
             return
         else:
@@ -514,142 +691,31 @@ def subnotify_menu():
 
 def settings_menu(cfg: dict):
     items = [
-        ("1", "Pasar Panel 地址"),
-        ("2", "Pasar Panel 端口"),
-        ("3", "Pasar 登录/更新 Access Token"),
-        ("4", "Shlink API Key"),
-        ("5", "短链域名"),
-        ("6", "订阅基础地址"),
-        ("7", "Mapping 表路径"),
-        ("8", "TG Bot Token"),
-        ("9", "TG Chat ID"),
-        ("10", "TG Thread ID"),
-        ("11", "查看当前配置"),
-        ("12", "测试 Pasar API"),
-        ("13", "测试 Shlink API"),
-        ("14", "测试 TG 通知"),
-        ("15", "升级程序"),
-        ("16", "卸载程序"),
-        ("17", "PasarGuard SQLite 路径"),
-        ("18", "提醒轮询间隔秒数"),
-        ("19", "提醒状态文件路径"),
-        ("20", "提醒用户状态过滤"),
-        ("21", "Legacy Mapping 自动写入"),
+        ("1", "Pasar"),
+        ("2", "Shlink"),
+        ("3", "Telegram"),
+        ("4", "订阅监控"),
+        ("5", "路径"),
+        ("6", "查看配置"),
         ("0", "返回"),
     ]
     while True:
         cfg = load_config()
-
-        menu_block("Eazy Link 设置", items)
+        menu_block("=== 设置 ===", items)
         opt = prompt_menu()
 
         if opt == "1":
-            value = input(f"Pasar Panel 地址 [当前: {cfg['PASAR_PANEL_HOST']}]: ").strip()
-            if value:
-                cfg["PASAR_PANEL_HOST"] = value.rstrip("/")
-                save_config(cfg)
+            settings_pasar(cfg)
         elif opt == "2":
-            value = input(f"Pasar Panel 端口 [当前: {cfg['PASAR_PANEL_PORT']}]: ").strip()
-            if value:
-                cfg["PASAR_PANEL_PORT"] = value
-                save_config(cfg)
+            settings_shlink(cfg)
         elif opt == "3":
-            pasar_login(cfg)
+            settings_telegram(cfg)
         elif opt == "4":
-            value = input("Shlink API Key: ").strip()
-            if value:
-                cfg["SHLINK_API_KEY"] = value
-                save_config(cfg)
+            settings_monitor(cfg)
         elif opt == "5":
-            value = input(f"短链域名 [当前: {cfg['SHORT_DOMAIN']}]: ").strip()
-            if value:
-                cfg["SHORT_DOMAIN"] = value.rstrip("/")
-                cfg["SHLINK_API_BASE"] = f"{value.rstrip('/')}/rest/v3"
-                save_config(cfg)
+            settings_paths(cfg)
         elif opt == "6":
-            value = input(f"订阅基础地址 [当前: {cfg['SUB_BASE_URL']}]: ").strip()
-            if value:
-                cfg["SUB_BASE_URL"] = value.rstrip("/")
-                save_config(cfg)
-        elif opt == "7":
-            value = input(f"Mapping 表路径 [当前: {cfg['SUB_MAP_FILE']}]: ").strip()
-            if value:
-                cfg["SUB_MAP_FILE"] = value
-                save_config(cfg)
-        elif opt == "8":
-            value = input("TG Bot Token: ").strip()
-            if value:
-                cfg["TG_BOT_TOKEN"] = value
-                save_config(cfg)
-                sync_tg_env(cfg)
-        elif opt == "9":
-            value = input("TG Chat ID: ").strip()
-            if value:
-                cfg["TG_CHAT_ID"] = value
-                save_config(cfg)
-                sync_tg_env(cfg)
-        elif opt == "10":
-            value = input("TG Thread ID，可留空: ").strip()
-            cfg["TG_THREAD_ID"] = value
-            save_config(cfg)
-            sync_tg_env(cfg)
-        elif opt == "11":
-            print()
-            print("=== 当前配置 ===")
-            print(f"Pasar Panel 地址：{cfg['PASAR_PANEL_HOST']}")
-            print(f"Pasar Panel 端口：{cfg['PASAR_PANEL_PORT']}")
-            print(f"Shlink API Base：{cfg['SHLINK_API_BASE']}")
-            print(f"短链域名：{cfg['SHORT_DOMAIN']}")
-            print(f"订阅基础地址：{cfg['SUB_BASE_URL']}")
-            print(f"Mapping 表：{cfg['SUB_MAP_FILE']}")
-            print(f"TG Bot Token：{mask(cfg['TG_BOT_TOKEN'])}")
-            print(f"TG Chat ID：{mask(cfg['TG_CHAT_ID'])}")
-            print(f"TG Thread ID：{mask(cfg['TG_THREAD_ID'])}")
-            print(f"PasarGuard SQLite：{cfg['PASARGUARD_DB_PATH']}")
-            print(f"提醒轮询间隔：{cfg['SUB_NOTIFY_POLL_SECONDS']}")
-            print(f"提醒状态文件：{cfg['SUB_NOTIFY_STATE_FILE']}")
-            print(f"提醒状态过滤：{cfg['SUB_NOTIFY_USER_STATUS'] or '<empty>'}")
-            print(f"Legacy Mapping 自动写入：{cfg['EAZYLINK_WRITE_LEGACY_MAPPING']}")
-        elif opt == "12":
-            test_pasar(cfg)
-        elif opt == "13":
-            test_shlink(cfg)
-        elif opt == "14":
-            test_tg(cfg)
-        elif opt == "15":
-            run_upgrade()
-        elif opt == "16":
-            run_uninstall(cfg)
-        elif opt == "17":
-            value = input(f"PasarGuard SQLite 路径 [当前: {cfg['PASARGUARD_DB_PATH']}]: ").strip()
-            if value:
-                cfg["PASARGUARD_DB_PATH"] = value
-                save_config(cfg)
-        elif opt == "18":
-            value = input(f"提醒轮询间隔秒数 [当前: {cfg['SUB_NOTIFY_POLL_SECONDS']}]: ").strip()
-            if value:
-                cfg["SUB_NOTIFY_POLL_SECONDS"] = value
-                save_config(cfg)
-        elif opt == "19":
-            value = input(f"提醒状态文件路径 [当前: {cfg['SUB_NOTIFY_STATE_FILE']}]: ").strip()
-            if value:
-                cfg["SUB_NOTIFY_STATE_FILE"] = value
-                save_config(cfg)
-        elif opt == "20":
-            value = input(
-                f"提醒用户状态过滤（逗号分隔，可留空） [当前: {cfg['SUB_NOTIFY_USER_STATUS'] or '<empty>'}]: "
-            ).strip()
-            cfg["SUB_NOTIFY_USER_STATUS"] = value
-            save_config(cfg)
-        elif opt == "21":
-            value = input(
-                f"Legacy Mapping 自动写入（true/false） [当前: {cfg['EAZYLINK_WRITE_LEGACY_MAPPING']}]: "
-            ).strip().lower()
-            if value in {"true", "false"}:
-                cfg["EAZYLINK_WRITE_LEGACY_MAPPING"] = value
-                save_config(cfg)
-            elif value:
-                print("请输入 true 或 false。")
+            show_config(cfg)
         elif opt == "0":
             return
         else:
@@ -658,43 +724,38 @@ def settings_menu(cfg: dict):
 
 def main_menu():
     items = [
-        ("1", "新增 Eazy Link"),
-        ("2", "更新 Eazy Link"),
-        ("3", "删除 Eazy Link"),
-        ("4", "查看短链接"),
-        ("5", "单独短链接管理"),
-        ("6", "DB 订阅提醒"),
+        ("1", "新增链接"),
+        ("2", "更新链接"),
+        ("3", "删除链接"),
+        ("4", "查看链接"),
+        ("5", "管理短链"),
+        ("6", "订阅监控"),
         ("7", "设置"),
-        ("8", "Legacy Mapping 工具"),
         ("0", "退出"),
     ]
     while True:
         cfg = load_config()
-
-        menu_block(f"Pasar Eazy Link v{__version__}", items)
+        menu_block("=== 订阅监控与短链接管理 ===", items)
         opt = prompt_menu()
 
         if opt == "1":
-            create_eazy_link(cfg)
+            create_link(cfg)
         elif opt == "2":
-            update_eazy_link(cfg)
+            update_link(cfg)
         elif opt == "3":
-            delete_eazy_link(cfg)
+            delete_link(cfg)
         elif opt == "4":
-            view_shortlinks(cfg)
+            view_links(cfg)
         elif opt == "5":
             shortlink_manage_menu(cfg)
         elif opt == "6":
-            subnotify_menu()
+            monitor_menu(cfg)
         elif opt == "7":
             settings_menu(cfg)
-        elif opt == "8":
-            legacy_mapping_menu(cfg)
         elif opt == "0":
             return
         else:
-            print("输入无效，已退出。")
-            return
+            print("无效选项，请重试。")
 
 
 def main(argv: list[str] | None = None):

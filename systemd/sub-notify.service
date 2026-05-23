@@ -1,11 +1,11 @@
 [Unit]
-Description=Subscription DB monitor service
-After=network-online.target docker.service
+Description=Subscription log monitor service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/pasar monitor-db
+ExecStart=/usr/local/bin/sub-notify.sh
 Restart=always
 RestartSec=5
 User=root

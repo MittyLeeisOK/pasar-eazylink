@@ -12,13 +12,14 @@ elif os.path.isdir(os.path.join(install_dir, "pasar_eazylink")):
     sys.path.insert(0, install_dir)
 
 from pasar_eazylink.cli import main as easylink_main
-from pasar_eazylink.sub_notify import main as subnotify_main
+from pasar_eazylink.sub_notify import main as monitor_db_main
 
 
 def usage() -> int:
     print("Usage:")
     print("  pasar easylink")
-    print("  pasar subnotify-db [--test] [--send-test]")
+    print("  pasar monitor-db [--test] [--send-test]")
+    print("  pasar subnotify-db [--test] [--send-test]  # legacy alias")
     return 1
 
 
@@ -29,9 +30,10 @@ def main() -> int:
     command = sys.argv[1].strip().lower()
     if command == "easylink":
         return int(easylink_main() or 0)
-    if command in {"subnotify-db", "sub-notify-db", "subnotify"}:
-        return int(subnotify_main(sys.argv[2:]) or 0)
+    if command in {"monitor-db", "subnotify-db", "sub-notify-db", "subnotify"}:
+        return int(monitor_db_main(sys.argv[2:]) or 0)
     return usage()
+
 
 if __name__ == "__main__":
     sys.exit(main())

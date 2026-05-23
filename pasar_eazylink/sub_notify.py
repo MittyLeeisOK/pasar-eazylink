@@ -15,15 +15,12 @@ from .http_client import http_json
 def load_state(path: Path) -> int:
     if not path.exists():
         return 0
-
     try:
         data = json.loads(path.read_text(errors="ignore") or "{}")
     except Exception:
         return 0
-
-    value = data.get("last_id", 0)
     try:
-        return int(value)
+        return int(data.get("last_id", 0) or 0)
     except Exception:
         return 0
 
@@ -56,17 +53,12 @@ def format_time(raw: str) -> str:
     if not raw:
         return "<unknown>"
 
-    dt = None
     for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            dt = datetime.strptime(raw, fmt)
-            break
+            return datetime.strptime(raw, fmt).strftime("%F %T")
         except Exception:
             pass
-
-    if dt is None:
-        return raw
-    return dt.strftime("%F %T")
+    return raw
 
 
 def send_tg(cfg: dict, text: str) -> bool:
@@ -75,7 +67,6 @@ def send_tg(cfg: dict, text: str) -> bool:
         "parse_mode": "HTML",
         "text": text,
     }
-
     if cfg.get("TG_THREAD_ID"):
         form["message_thread_id"] = cfg["TG_THREAD_ID"]
 
@@ -84,12 +75,19 @@ def send_tg(cfg: dict, text: str) -> bool:
         f"https://api.telegram.org/bot{cfg['TG_BOT_TOKEN']}/sendMessage",
         form=form,
     )
-
     if 200 <= code < 300 and data.get("ok", True):
         return True
 
-    print(f"[sub-notify] TG send failed: HTTP {code} {raw}")
+    print(f"[monitor-db] TG send failed: HTTP {code} {raw}")
     return False
+
+
+def open_db_ro(db_path: str) -> sqlite3.Connection:
+    if not Path(db_path).exists():
+        raise FileNotFoundError(f"database not found: {db_path}")
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def fetch_max_id(conn: sqlite3.Connection) -> int:
@@ -166,15 +164,13 @@ def build_message(row: sqlite3.Row) -> str:
 
 
 def run_once(cfg: dict, db_path: str, state_path: Path, status_filter: set[str]) -> bool:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-
+    conn = open_db_ro(db_path)
     try:
         last_id = load_state(state_path)
         if last_id <= 0:
             last_id = fetch_max_id(conn)
             save_state(state_path, last_id)
-            print(f"[sub-notify] initialized at id={last_id}")
+            print(f"[monitor-db] initialized at id={last_id}")
             return True
 
         rows = fetch_updates(conn, last_id)
@@ -204,15 +200,14 @@ def run_once(cfg: dict, db_path: str, state_path: Path, status_filter: set[str])
 def load_runtime_config() -> tuple[dict, str, Path, int, set[str]]:
     cfg = load_config()
     db_path = (cfg.get("PASARGUARD_DB_PATH") or "").strip() or "/var/lib/pasarguard/db.sqlite3"
-    state_path = Path((cfg.get("SUB_NOTIFY_STATE_FILE") or "").strip() or "/var/lib/pasar-eazylink/sub-notify.state")
-    poll_seconds = parse_seconds(cfg.get("SUB_NOTIFY_POLL_SECONDS", "15"))
+    state_path = Path((cfg.get("DB_MONITOR_STATE_FILE") or "").strip() or "/var/lib/pasar-eazylink/db-monitor.state")
+    poll_seconds = parse_seconds(cfg.get("DB_MONITOR_POLL_SECONDS", "15"))
     status_filter = parse_status_filter(cfg.get("SUB_NOTIFY_USER_STATUS", ""))
     return cfg, db_path, state_path, poll_seconds, status_filter
 
 
 def latest_message(db_path: str) -> str | None:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = open_db_ro(db_path)
     try:
         row = fetch_latest_update(conn)
         if row is None:
@@ -224,7 +219,15 @@ def latest_message(db_path: str) -> str | None:
 
 def run_test_mode(send: bool) -> int:
     cfg, db_path, _state_path, _poll_seconds, _status_filter = load_runtime_config()
-    text = latest_message(db_path)
+    try:
+        text = latest_message(db_path)
+    except FileNotFoundError as exc:
+        print(str(exc))
+        return 1
+    except sqlite3.Error as exc:
+        print(f"database error: {exc}")
+        return 1
+
     if text is None:
         print("no subscription updates found")
         return 0
@@ -234,14 +237,14 @@ def run_test_mode(send: bool) -> int:
         return 0
 
     if not cfg.get("TG_BOT_TOKEN") or not cfg.get("TG_CHAT_ID"):
-        print("[sub-notify] TG_BOT_TOKEN 或 TG_CHAT_ID 为空。")
+        print("[monitor-db] TG_BOT_TOKEN 或 TG_CHAT_ID 为空。")
         return 1
 
     return 0 if send_tg(cfg, text) else 1
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="pasar subnotify-db")
+    parser = argparse.ArgumentParser(prog="pasar monitor-db")
     parser.add_argument("--test", action="store_true", help="print the latest notification without sending")
     parser.add_argument("--send-test", action="store_true", help="send the latest notification once")
     args = parser.parse_args(argv)
@@ -261,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             cfg, db_path, state_path, poll_seconds, status_filter = load_runtime_config()
             if not cfg.get("TG_BOT_TOKEN") or not cfg.get("TG_CHAT_ID"):
-                print("[sub-notify] TG_BOT_TOKEN 或 TG_CHAT_ID 为空，等待配置。")
+                print("[monitor-db] TG_BOT_TOKEN 或 TG_CHAT_ID 为空，等待配置。")
                 time.sleep(5)
                 continue
 
@@ -269,8 +272,16 @@ def main(argv: list[str] | None = None) -> int:
             if not ok:
                 time.sleep(5)
                 continue
+        except FileNotFoundError as exc:
+            print(f"[monitor-db] {exc}")
+            time.sleep(5)
+            continue
+        except sqlite3.Error as exc:
+            print(f"[monitor-db] database error: {exc}")
+            time.sleep(5)
+            continue
         except Exception as exc:
-            print(f"[sub-notify] error: {exc}")
+            print(f"[monitor-db] error: {exc}")
             time.sleep(5)
             continue
 

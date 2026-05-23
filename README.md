@@ -1,75 +1,119 @@
-# Pasar Eazy Link
+# 订阅监控与短链接管理
 
-A lightweight SSH menu tool for managing PasarGuard subscription links, Shlink short URLs, and DB-based subscription notifications.
+Subscription Monitor & Link Manager
 
-## Features
+用于 PasarGuard 的订阅短链接管理、订阅拉取监控和泄漏追踪。
 
-- Create, update, and delete Eazy Link short URLs
-- Browse and manage Shlink short links
-- DB-based Telegram subscription notifications from PasarGuard SQLite (`user_subscription_updates`)
-- Legacy mapping tools for `/etc/sub-map.tsv` compatibility
-- Manage PasarGuard API, Shlink API, Telegram, and notification settings from CLI
-
-## Recommended notification mode
-
-推荐使用 **DB-based subscription notification**，不要再依赖 Nginx access.log `/sub/` 方案。
-
-原因是 access.log 只能证明有人访问了 `/sub/` 路径，不能可靠表示真实的订阅更新事件；当前项目直接读取 PasarGuard SQLite 中的 `user_subscription_updates` 并 `JOIN users`，可以拿到更准确的用户、状态、时间与订阅信息。
-
-## Install
+## 推荐安装
 
 ```bash
-tmp_dir="$(mktemp -d /tmp/pasar-eazylink.XXXXXX)" && (
-  trap 'rm -rf "$tmp_dir"' EXIT
-  git clone https://github.com/MittyLeeisOK/pasar-eazylink.git "$tmp_dir" \
-    && cd "$tmp_dir" \
-    && sudo bash install.sh
-)
+curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash
 ```
 
-如需安装后立即启用 DB 通知服务：
+## 升级
 
 ```bash
-sudo bash install.sh --enable-subnotify-db
+curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash -s -- --upgrade
 ```
 
-安装过程中会引导填写 `/etc/pasar-easylink.env` 配置参数；若配置文件已存在，安装脚本不会强制覆盖，请手动补充新增配置项。
+## 卸载
 
-安装完成后可运行：
+```bash
+curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash -s -- --uninstall
+```
+
+## 彻底卸载
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash -s -- --purge
+```
+
+## 备用方式（Git clone）
+
+安装：
+
+```bash
+git clone https://github.com/MittyLeeisOK/pasar-eazylink.git
+cd pasar-eazylink
+bash install.sh
+```
+
+升级：
+
+```bash
+cd /opt/pasar-eazylink
+git pull
+bash install.sh --upgrade
+```
+
+卸载：
+
+```bash
+bash /opt/pasar-eazylink/install.sh --uninstall
+```
+
+## 启动菜单
 
 ```bash
 pasar easylink
+```
+
+菜单标题：`订阅监控与短链接管理`
+
+## 订阅监控模式
+
+- DB监控（推荐）
+- 日志监控（兼容）
+
+泄漏监控建议：优先使用 **DB监控 + Nginx IP补全**；日志监控用于回滚和兼容。
+
+## 命令
+
+推荐：
+
+```bash
+pasar monitor-db
+pasar monitor-db --test
+pasar monitor-db --send-test
+```
+
+兼容旧命令：
+
+```bash
+pasar subnotify-db
 pasar subnotify-db --test
+pasar subnotify-db --send-test
 ```
 
-如需启用 DB-based subscription notification：
+日志监控脚本：
 
 ```bash
-systemctl enable --now sub-notify-db.service
-journalctl -u sub-notify-db.service -f
+sub-notify.sh
 ```
 
-## Notification-related config
+## 文件路径
 
-`/etc/pasar-easylink.env` 中与 DB 通知相关的配置：
+- /opt/pasar-eazylink
+- /etc/pasar-easylink.env
+- /etc/sub-notify.env
+- /etc/sub-map.tsv
+- /var/lib/pasar-eazylink
+- /usr/local/bin/pasar
+- /usr/local/bin/sub-notify.sh
 
-- `PASARGUARD_DB_PATH`：PasarGuard SQLite 路径（默认 `/var/lib/pasarguard/db.sqlite3`）
-- `SUB_NOTIFY_STATE_FILE`：增量读取状态文件（默认 `/var/lib/pasar-eazylink/sub-notify.state`）
-- `SUB_NOTIFY_POLL_SECONDS`：轮询间隔秒数（默认 `15`）
-- `SUB_NOTIFY_USER_STATUS`：状态过滤；留空表示不过滤，`active` 表示只通知 active，`active,on_hold` 表示只通知这两类状态
-- `TG_BOT_TOKEN` / `TG_CHAT_ID` / `TG_THREAD_ID`：Telegram 推送配置
+## 服务
 
-## Legacy mapping compatibility
+- sub-notify-db.service
+- sub-notify.service
 
-`/etc/sub-map.tsv` 和 `mapping.py` 仍然保留，用于旧通知链路或历史兼容。
-
-新增配置：
+## 安装参数
 
 ```bash
-EAZYLINK_WRITE_LEGACY_MAPPING='false'
+bash install.sh --help
 ```
 
-- `false`：新增/更新 Eazy Link 时不写入 `/etc/sub-map.tsv`
-- `true`：保持旧行为，继续写入 token -> username mapping
+支持：`--install` `--upgrade` `--uninstall` `--purge` `--yes` `--install-deps` `--enable-db-monitor` `--enable-log-monitor` `--disable-db-monitor` `--disable-log-monitor`
 
-CLI 中的 Mapping 功能已移动到 **Legacy Mapping 工具** 菜单。
+## 备份说明
+
+安装脚本不在 `/root` 下创建临时/备份目录。临时目录使用 `mktemp -d` 并自动清理。

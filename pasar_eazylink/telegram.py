@@ -24,7 +24,8 @@ def sync_env(cfg: dict):
     os.chmod(TG_ENV, 0o600)
 
     os.system("systemctl restart sub-notify.service >/dev/null 2>&1")
-    print("TG 配置已同步到 /etc/sub-notify.env，并尝试重启 sub-notify.service。")
+    os.system("systemctl restart sub-notify-db.service >/dev/null 2>&1")
+    print("TG 配置已同步到 /etc/sub-notify.env，并尝试重启监控服务。")
 
 
 def test(cfg: dict):
@@ -33,7 +34,7 @@ def test(cfg: dict):
         return
 
     text = (
-        "#EazyLink测试\n\n"
+        "#订阅监控测试\n\n"
         "用户：<b>test</b>\n"
         "状态：配置测试\n"
         f"时间：{datetime.now().strftime('%F %T')}"
