@@ -55,6 +55,18 @@ cleanup_old() {
   systemctl daemon-reload >/dev/null 2>&1 || true
 }
 
+restart_db_monitor_if_needed() {
+  if systemctl is-active --quiet sub-notify-db.service; then
+    if systemctl restart sub-notify-db.service; then
+      ok "已重启 sub-notify-db.service，使新版本立即生效。"
+    else
+      warn "检测到 sub-notify-db.service 正在运行，但重启失败，请手动执行：systemctl restart sub-notify-db.service"
+    fi
+  else
+    warn "sub-notify-db.service 未运行。本次安装/升级不会自动启动服务。"
+  fi
+}
+
 remove_runtime() {
   systemctl disable --now sub-notify-db.service >/dev/null 2>&1 || true
   cleanup_old
@@ -117,6 +129,7 @@ install -m 644 "$INSTALL_DIR/systemd/sub-notify-db.service" "$DB_SERVICE"
 
 cleanup_old
 ok "安装完成。运行：pasar easylink"
+restart_db_monitor_if_needed
 
 [ "$ENABLE_DB_MONITOR" = true ] && systemctl enable --now sub-notify-db.service || true
 [ "$DISABLE_DB_MONITOR" = true ] && systemctl disable --now sub-notify-db.service || true
