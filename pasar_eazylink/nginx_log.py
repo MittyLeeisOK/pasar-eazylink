@@ -79,10 +79,10 @@ def find_matching_request(
             (
                 bool(target_ip) and row["remote_addr"] == target_ip,
                 row["user_agent"] == target_ua,
+                -diff,
                 row["method"] == "GET",
                 row["status"] == "200",
                 row["body_bytes"],
-                -diff,
                 row,
             )
         )
