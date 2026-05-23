@@ -18,6 +18,10 @@ DEFAULT_CONFIG = {
     "TG_BOT_TOKEN": "",
     "TG_CHAT_ID": "",
     "TG_THREAD_ID": "",
+    "PASARGUARD_DB_PATH": "/var/lib/pasarguard/db.sqlite3",
+    "SUB_NOTIFY_POLL_SECONDS": "15",
+    "SUB_NOTIFY_STATE_FILE": "/var/lib/pasar-eazylink/sub-notify.state",
+    "SUB_NOTIFY_USER_STATUS": "",
 }
 
 

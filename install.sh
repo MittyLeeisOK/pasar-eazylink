@@ -49,6 +49,7 @@ prompt_value() {
 write_config() {
   export PASAR_PANEL_HOST PASAR_PANEL_PORT PASAR_API_KEY SHLINK_API_BASE SHLINK_API_KEY
   export SHORT_DOMAIN SUB_BASE_URL SUB_MAP_FILE TG_BOT_TOKEN TG_CHAT_ID TG_THREAD_ID
+  export PASARGUARD_DB_PATH SUB_NOTIFY_POLL_SECONDS SUB_NOTIFY_STATE_FILE SUB_NOTIFY_USER_STATUS
 
   python3 - "$CONFIG_FILE" <<'PY'
 import os
@@ -68,6 +69,10 @@ keys = [
     "TG_BOT_TOKEN",
     "TG_CHAT_ID",
     "TG_THREAD_ID",
+    "PASARGUARD_DB_PATH",
+    "SUB_NOTIFY_POLL_SECONDS",
+    "SUB_NOTIFY_STATE_FILE",
+    "SUB_NOTIFY_USER_STATUS",
 ]
 
 path = Path(sys.argv[1])
@@ -100,6 +105,10 @@ guide_config() {
   : "${TG_BOT_TOKEN:=}"
   : "${TG_CHAT_ID:=}"
   : "${TG_THREAD_ID:=}"
+  : "${PASARGUARD_DB_PATH:=/var/lib/pasarguard/db.sqlite3}"
+  : "${SUB_NOTIFY_POLL_SECONDS:=15}"
+  : "${SUB_NOTIFY_STATE_FILE:=/var/lib/pasar-eazylink/sub-notify.state}"
+  : "${SUB_NOTIFY_USER_STATUS:=}"
   local original_short_domain="$SHORT_DOMAIN"
   local original_shlink_base="$SHLINK_API_BASE"
 
@@ -124,6 +133,10 @@ guide_config() {
   prompt_value TG_BOT_TOKEN "TG Bot Token" true
   prompt_value TG_CHAT_ID "TG Chat ID" true
   prompt_value TG_THREAD_ID "TG Thread ID（可留空）"
+  prompt_value PASARGUARD_DB_PATH "PasarGuard SQLite 路径"
+  prompt_value SUB_NOTIFY_POLL_SECONDS "提醒轮询间隔秒数"
+  prompt_value SUB_NOTIFY_STATE_FILE "提醒状态文件路径"
+  prompt_value SUB_NOTIFY_USER_STATUS "提醒用户状态过滤（逗号分隔，可留空）"
 
   write_config
   echo "配置已保存到 ${CONFIG_FILE}"
@@ -139,6 +152,7 @@ else
   cp -a "$PROJECT_DIR/pasar_eazylink/"*.py "$INSTALL_DIR/pasar_eazylink/"
 fi
 install -m 755 "$PROJECT_DIR/bin/pasar" /usr/local/bin/pasar
+install -m 755 "$PROJECT_DIR/bin/sub-notify" /usr/local/bin/sub-notify
 
 created_config=""
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -164,7 +178,30 @@ fi
 
 python3 -m py_compile "$INSTALL_DIR/pasar_eazylink/"*.py
 python3 -m py_compile /usr/local/bin/pasar
+python3 -m py_compile /usr/local/bin/sub-notify
 echo "安装检查通过：脚本已编译。"
+
+if command -v systemctl >/dev/null 2>&1; then
+  cat >/etc/systemd/system/sub-notify.service <<'SERVICE'
+[Unit]
+Description=Pasar EazyLink subscription pull notify (SQLite)
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/pasar-easylink.env
+EnvironmentFile=-/etc/sub-notify.env
+ExecStart=/usr/local/bin/sub-notify
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable --now sub-notify.service >/dev/null 2>&1 || true
+fi
 
 if command -v pasar >/dev/null 2>&1; then
   hash -r 2>/dev/null || true

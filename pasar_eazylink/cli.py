@@ -132,7 +132,10 @@ def run_uninstall(cfg: dict):
         return
 
     remove_path(Path("/usr/local/bin/pasar"), "命令入口")
+    remove_path(Path("/usr/local/bin/sub-notify"), "提醒命令入口")
+    remove_path(Path("/etc/systemd/system/sub-notify.service"), "提醒服务文件")
     remove_path(Path("/opt/pasar-eazylink"), "安装目录")
+    os.system("systemctl daemon-reload >/dev/null 2>&1")
 
     while True:
         extra = input("是否同时删除配置与映射文件？输入 yes 继续，输入 no 跳过: ").strip().lower()
@@ -454,6 +457,10 @@ def settings_menu(cfg: dict):
         ("14", "测试 TG 通知"),
         ("15", "升级程序"),
         ("16", "卸载程序"),
+        ("17", "PasarGuard SQLite 路径"),
+        ("18", "提醒轮询间隔秒数"),
+        ("19", "提醒状态文件路径"),
+        ("20", "提醒用户状态过滤"),
         ("0", "返回"),
     ]
     while True:
@@ -526,6 +533,10 @@ def settings_menu(cfg: dict):
             print(f"TG Bot Token：{mask(cfg['TG_BOT_TOKEN'])}")
             print(f"TG Chat ID：{mask(cfg['TG_CHAT_ID'])}")
             print(f"TG Thread ID：{mask(cfg['TG_THREAD_ID'])}")
+            print(f"PasarGuard SQLite：{cfg['PASARGUARD_DB_PATH']}")
+            print(f"提醒轮询间隔：{cfg['SUB_NOTIFY_POLL_SECONDS']}")
+            print(f"提醒状态文件：{cfg['SUB_NOTIFY_STATE_FILE']}")
+            print(f"提醒状态过滤：{cfg['SUB_NOTIFY_USER_STATUS'] or '<empty>'}")
         elif opt == "12":
             test_pasar(cfg)
         elif opt == "13":
@@ -536,6 +547,27 @@ def settings_menu(cfg: dict):
             run_upgrade()
         elif opt == "16":
             run_uninstall(cfg)
+        elif opt == "17":
+            value = input(f"PasarGuard SQLite 路径 [当前: {cfg['PASARGUARD_DB_PATH']}]: ").strip()
+            if value:
+                cfg["PASARGUARD_DB_PATH"] = value
+                save_config(cfg)
+        elif opt == "18":
+            value = input(f"提醒轮询间隔秒数 [当前: {cfg['SUB_NOTIFY_POLL_SECONDS']}]: ").strip()
+            if value:
+                cfg["SUB_NOTIFY_POLL_SECONDS"] = value
+                save_config(cfg)
+        elif opt == "19":
+            value = input(f"提醒状态文件路径 [当前: {cfg['SUB_NOTIFY_STATE_FILE']}]: ").strip()
+            if value:
+                cfg["SUB_NOTIFY_STATE_FILE"] = value
+                save_config(cfg)
+        elif opt == "20":
+            value = input(
+                f"提醒用户状态过滤（逗号分隔，可留空） [当前: {cfg['SUB_NOTIFY_USER_STATUS'] or '<empty>'}]: "
+            ).strip()
+            cfg["SUB_NOTIFY_USER_STATUS"] = value
+            save_config(cfg)
         elif opt == "0":
             return
         else:
