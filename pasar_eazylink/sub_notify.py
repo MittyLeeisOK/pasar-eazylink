@@ -5,7 +5,6 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from .config import load_config
@@ -59,17 +58,34 @@ def mask_path(path: str) -> str:
     return f"/sub/{token_main[:8]}...{token_main[-6:]}{suffix}"
 
 
-def build_masked_request_url(path: str, cfg: dict) -> str:
-    if not path:
+def format_sub_path(path: str) -> str:
+    return mask_path(path or "")
+
+
+def lookup_ip_geo(ip: str) -> str:
+    ip = (ip or "").strip()
+    if not ip or ip in {"127.0.0.1", "::1"}:
+        return "本地/回环地址"
+    code, data, _ = http_json("GET", f"https://ipwho.is/{ip}")
+    if not (200 <= code < 300) or not isinstance(data, dict):
         return ""
-    if path.startswith("http://") or path.startswith("https://"):
-        return mask_path(path)
-    base = cfg.get("SUB_BASE_URL") or cfg.get("SHORT_DOMAIN") or ""
-    parsed = urlparse(base if "://" in base else f"https://{base.lstrip('/')}")
-    prefix = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
-    if path.startswith("/sub/") and prefix:
-        return f"{prefix}{mask_path(path)}"
-    return mask_path(path)
+    if data.get("success") is False:
+        return ""
+    country = str(data.get("country") or "").strip()
+    city = str(data.get("city") or "").strip()
+    region = str(data.get("region") or "").strip()
+    isp = str(data.get("connection", {}).get("isp") or "").strip()
+    parts = [x for x in [country, region, city, isp] if x]
+    return " / ".join(parts)
+
+
+def render_status(raw: str) -> str:
+    value = (raw or "").strip().lower()
+    if value in {"active", "enabled", "ok"}:
+        return f"✅ {value or 'active'}"
+    if value in {"disabled", "inactive", "banned", "blocked"}:
+        return f"⛔ {value}"
+    return value or "unknown"
 
 
 def to_int(value: str | None, default: int, minimum: int) -> int:
@@ -89,38 +105,33 @@ def send_tg(cfg: dict, text: str) -> tuple[bool, int, str]:
 
 
 def build_message(row: sqlite3.Row, cfg: dict, nginx_match: dict | None = None) -> str:
-    ua = parse_user_agent(str(row["user_agent"] or ""))
-    source_ip = f"<code>{html.escape(str(nginx_match['remote_addr']))}</code>" if nginx_match else "未匹配到 Nginx 真实IP"
-    nginx_lines = ""
-    if nginx_match:
-        req_url = build_masked_request_url(str(nginx_match["path"] or ""), cfg)
-        nginx_lines = (
-            f"\nNginx请求：<code>{html.escape(req_url)}</code>"
-            f"\nNginx状态：{html.escape(str(nginx_match['status']))}"
-            f"\n响应大小：{int(nginx_match['body_bytes'])} B"
-        )
+    ua_raw = str(row["user_agent"] or "").strip()
+    ua = parse_user_agent(ua_raw)
+    source_ip_raw = str(nginx_match["remote_addr"]) if nginx_match else ""
+    source_ip = f"<code>{html.escape(source_ip_raw)}</code>" if source_ip_raw else "未匹配到 Nginx 真实IP"
+    source_geo = lookup_ip_geo(source_ip_raw) if source_ip_raw else ""
+    source_geo_line = f" | {html.escape(source_geo)}" if source_geo else ""
+    req_path = format_sub_path(str(nginx_match["path"] or "")) if nginx_match else ""
+    response_size = int(nginx_match["body_bytes"]) if nginx_match else 0
+    db_ip = str(row["ip"] or "").strip()
+    db_ip_tail = "（默认隐藏，没有来源IP时显示）" if db_ip in {"", "127.0.0.1", "::1"} else ""
     hwid = str(row["hwid"] or "").strip()
-    hwid_line = ""
-    if hwid and hwid.lower() not in {"none", "<none>"}:
-        hwid_line = f"\nHWID：<code>{html.escape(hwid)}</code>"
-    model = str(ua.get("model") or "").strip()
-    model_line = ""
-    if model and model.lower() != "unknown":
-        model_line = f"\n型号：{html.escape(model)}"
+    hwid_line = f"\nHWID：<code>{html.escape(hwid)}</code>" if hwid and hwid.lower() not in {"none", "<none>"} else ""
     return (
-        "#订阅拉取提醒\n\n"
-        f"用户：<b>{html.escape(str(row['username'] or f'id={row['user_id']}'))}</b>\n"
-        f"用户ID：{row['user_id']}\n"
-        f"状态：{html.escape(str(row['status'] or ''))}\n\n"
-        f"来源IP：{source_ip}\n"
-        f"DB记录IP：<code>{html.escape(str(row['ip'] or ''))}</code>{hwid_line}\n"
-        f"设备：{html.escape(ua['client'])} / {html.escape(ua['device_type'])}\n"
-        f"系统：{html.escape(ua['os'])}\n"
-        f"{model_line}"
-        f"UA摘要：{html.escape(ua['summary'])}"
-        f"{nginx_lines}\n\n"
+        "#订阅拉取提醒\n"
         f"时间：{html.escape(format_display_time(str(row['created_at'] or ''), cfg.get('DISPLAY_TIMEZONE', 'local')))}\n"
-        f"记录ID：{row['id']}"
+        f"记录ID：{row['id']}\n"
+        "---\n"
+        f"用户：{html.escape(str(row['username'] or f'id={row['user_id']}'))}\n"
+        f"用户ID：{row['user_id']}\n"
+        f"状态：{html.escape(render_status(str(row['status'] or '')))}\n"
+        f"IP：{source_ip}{source_geo_line}\n"
+        f"DB记录IP：<code>{html.escape(db_ip)}</code>{html.escape(db_ip_tail)}{hwid_line}\n"
+        f"UA：<code>{html.escape(ua_raw or '-')}</code>\n"
+        f"路径：<code>{html.escape(req_path or '-')}</code>\n"
+        f"响应大小：{response_size} B\n"
+        "---\n"
+        f"设备识别：{html.escape(ua['client'])} / {html.escape(ua['device_type'])} / {html.escape(ua['os'])} / {html.escape(str(ua.get('model') or '-'))}"
     )
 
 
