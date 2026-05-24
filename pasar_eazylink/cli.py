@@ -3,21 +3,22 @@ from . import __version__
 from .colors import colors
 from .config import load_config, save_config
 from .pasar_api import create_user_from_template, list_templates
-from .shlink_api import show_list, select, item_code, patch as shlink_patch, delete as shlink_delete, upsert as shlink_upsert
-from .utils import validate_username, extract_token, make_long_url, prompt_slug
+from .shlink_api import show_list, item_code, item_long_url, create as shlink_create, patch as shlink_patch, delete as shlink_delete, upsert as shlink_upsert
+from .utils import validate_username, validate_slug, extract_token, make_long_url, prompt_slug
 
 
 def menu(title, items):
-    print('\n' + '=' * 20)
-    print(colors.title(title))
-    print('=' * 20)
+    line = '=' * 20
+    print('\n' + colors.menu(line))
+    print(colors.menu(title))
+    print(colors.menu(line))
     for k, v in items:
-        print(f"{k}  {v}")
-    print('=' * 20)
+        print(colors.menu(f"{k}  {v}"))
+    print(colors.menu(line))
 
 
 def ask():
-    return (input('请输入选项: ').strip().lower() or '0')
+    return (input(colors.menu('请输入选项: ')).strip().lower() or '0')
 
 
 def yesno(prompt):
@@ -53,29 +54,78 @@ def create_link(cfg):
 
 def manage_short(cfg):
     while True:
-        menu('=== 管理短链 ===', [('1', '查看短链'), ('2', '修改短链'), ('3', '删除短链'), ('4', '更新用户订阅目标'), ('0', '返回')])
+        items = show_list(cfg, '')
+        menu('=== 管理短链 ===', [('1', '修改'), ('2', '删除'), ('0', '返回')])
         o = ask()
         if o in {'', '0'}:
             return
+        if o not in {'1', '2'}:
+            continue
+        if not items:
+            print('无可操作短链接')
+            continue
+
+        value = input('输入序号(回车取消): ').strip()
+        if value in {'', '0'}:
+            print('已取消')
+            continue
+        if not value.isdigit() or not (1 <= int(value) <= len(items)):
+            print('序号无效。')
+            continue
+
+        it = items[int(value) - 1]
+        current_code = item_code(it)
+
         if o == '1':
-            show_list(cfg, input('关键词(回车全部): ').strip())
-        elif o in {'2', '4'}:
-            it = select(cfg)
-            if not it:
+            while True:
+                slug_input = input(f'输入需要修改成的短链接slug [当前: {current_code}]（留空则不修改）: ').strip()
+                if not slug_input or validate_slug(slug_input):
+                    break
+                print('slug 只能包含字母、数字、点、下划线、短横线，长度 3-128。')
+
+            target_input = input(f'输入需要修改成的长链接slug [当前: {item_long_url(it)}]（留空则不修改）: ').strip()
+            final_code = slug_input or current_code
+            if target_input:
+                token = extract_token(target_input)
+                final_long = make_long_url(token, cfg) if token else target_input
+            else:
+                final_long = item_long_url(it)
+
+            if final_code == current_code and final_long == item_long_url(it):
+                print('未修改，已取消')
                 continue
-            t = input('新的目标长链接或token(回车取消): ').strip()
-            if not t:
+
+            print('确认修改成如下吗')
+            print(f"{cfg['SHORT_DOMAIN'].rstrip('/')}/{final_code} -> {final_long}")
+            if input('输入yes确认，留空则取消: ').strip().lower() != 'yes':
                 print('已取消')
                 continue
-            token = extract_token(t)
-            long = make_long_url(token, cfg) if token else t
-            st, _, raw = shlink_patch(cfg, item_code(it), long)
-            print(raw if st >= 300 else colors.ok('已更新'))
-        elif o == '3':
-            it = select(cfg)
-            if it and yesno('确认删除？输入yes继续(回车取消): '):
-                st, _, raw = shlink_delete(cfg, item_code(it))
-                print(raw if st >= 300 else colors.ok('已删除'))
+
+            if final_code != current_code:
+                st, _, raw = shlink_create(cfg, final_code, final_long)
+                if st >= 300:
+                    print(raw)
+                    continue
+                st2, _, raw2 = shlink_delete(cfg, current_code)
+                if st2 >= 300:
+                    print(raw2)
+                    continue
+            else:
+                st, _, raw = shlink_patch(cfg, current_code, final_long)
+                if st >= 300:
+                    print(raw)
+                    continue
+
+            print(colors.ok('[OK]完成'))
+            return
+
+        if yesno('确认删除？输入yes继续(回车取消): '):
+            st, _, raw = shlink_delete(cfg, current_code)
+            if st >= 300:
+                print(raw)
+                continue
+            print(colors.ok('[OK]完成'))
+            return
 
 
 def db_menu():
