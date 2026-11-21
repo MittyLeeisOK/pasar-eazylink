@@ -1,55 +1,45 @@
-import getpass
 import json
 
-from .config import save_config
 from .http_client import http_json
+
+# PasarGuard (v5.6+) authenticates API keys via the X-Api-Key header
+# (it also accepts "Authorization: ApiKey <key>"). No username/password login.
+API_KEY_HELP = (
+    "请在 PasarGuard 面板的 API Keys 页面创建 API Key，"
+    "然后在「设置 → Pasar → PASAR_API_KEY」填入，"
+    "或直接写入 /etc/pasar-easylink.env。"
+)
 
 
 def panel_base(cfg: dict) -> str:
     return f"{cfg['PASAR_PANEL_HOST'].rstrip('/')}:{cfg['PASAR_PANEL_PORT']}"
 
 
+def api_key(cfg: dict) -> str:
+    return (cfg.get("PASAR_API_KEY") or "").strip()
+
+
+def looks_like_jwt(value: str) -> bool:
+    return value.startswith("eyJ") and value.count(".") == 2
+
+
 def pasar_headers(cfg: dict) -> dict:
     return {
-        "Authorization": f"Bearer {cfg.get('PASAR_API_KEY', '')}",
+        "X-Api-Key": api_key(cfg),
     }
 
 
-def login(cfg: dict) -> bool:
-    username = input("Pasar Admin username: ").strip()
-    password = getpass.getpass("Pasar Admin password: ")
-
-    code, data, raw = http_json(
-        "POST",
-        f"{panel_base(cfg)}/api/admin/token",
-        form={
-            "username": username,
-            "password": password,
-        },
-    )
-
-    token = data.get("access_token", "")
-    if code == 200 and token:
-        cfg["PASAR_API_KEY"] = token
-        save_config(cfg)
-        print("Pasar 登录成功，access_token 已保存。")
+def ensure_api_key(cfg: dict) -> bool:
+    if api_key(cfg):
         return True
-
-    print(f"Pasar 登录失败，HTTP {code}")
-    if raw:
-        print(raw)
+    print("未配置 PASAR_API_KEY。")
+    print(API_KEY_HELP)
     return False
 
 
-def ensure_token(cfg: dict) -> bool:
-    if cfg.get("PASAR_API_KEY"):
-        return True
-    return login(cfg)
-
-
-def api(cfg: dict, method: str, path: str, payload=None, retry=True):
-    if not ensure_token(cfg):
-        return 0, {}, "no token"
+def api(cfg: dict, method: str, path: str, payload=None):
+    if not ensure_api_key(cfg):
+        return 0, {}, "no api key"
 
     code, data, raw = http_json(
         method,
@@ -58,13 +48,12 @@ def api(cfg: dict, method: str, path: str, payload=None, retry=True):
         payload=payload,
     )
 
-    if code in (401, 403) and retry:
-        print("Pasar token 失效或无权限，请重新登录。")
-        cfg["PASAR_API_KEY"] = ""
-        save_config(cfg)
-
-        if login(cfg):
-            return api(cfg, method, path, payload, retry=False)
+    if code in (401, 403):
+        if looks_like_jwt(api_key(cfg)):
+            print("PASAR_API_KEY 里保存的是旧版账号密码登录得到的 access_token，已不再支持。")
+        else:
+            print(f"Pasar API Key 无效、已过期、已停用或权限不足（HTTP {code}）。")
+        print(API_KEY_HELP)
 
     return code, data, raw
 

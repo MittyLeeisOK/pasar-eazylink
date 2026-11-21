@@ -29,6 +29,11 @@ curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/in
 curl -fsSL https://raw.githubusercontent.com/MittyLeeisOK/pasar-eazylink/main/install.sh | bash -s -- --purge --yes
 ```
 
+## Pasar 认证（API Key）
+- 使用 PasarGuard API Key 认证（请求头 `X-Api-Key`），不再使用管理员账号密码登录。
+- 在 PasarGuard 面板的 API Keys 页面创建 Key（需要用户模板读取、用户创建权限），填入 `/etc/pasar-easylink.env` 的 `PASAR_API_KEY`，或在菜单「设置 → Pasar」中修改。
+- 旧版本保存在 `PASAR_API_KEY` 中的登录 access_token 不再有效，需换成 API Key。
+
 启动菜单：`pasar easylink`
 自测命令：`pasar self-test`
 
