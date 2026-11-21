@@ -90,5 +90,5 @@ def find_matching_request(
     if not candidates:
         return None
 
-    candidates.sort(reverse=True)
+    candidates.sort(key=lambda item: item[:-1], reverse=True)
     return candidates[0][-1]
